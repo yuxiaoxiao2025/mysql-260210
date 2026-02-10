@@ -7,11 +7,16 @@ def test_main_flow_list_tables():
     """测试主流程：列出表然后退出"""
     with patch('builtins.input', side_effect=['list tables', 'exit']), \
          patch('main.DatabaseManager') as MockDB, \
-         patch('main.ExcelExporter') as MockExporter:
+         patch('main.ExcelExporter') as MockExporter, \
+         patch('main.LLMClient') as MockLLM, \
+         patch('main.SchemaLoader') as MockSchemaLoader:
         
         # Setup mock
         mock_db_instance = MockDB.return_value
         mock_db_instance.get_all_tables.return_value = ['table1', 'table2']
+        
+        mock_schema_loader = MockSchemaLoader.return_value
+        mock_schema_loader.get_schema_context.return_value = "Mock Schema Context"
         
         # Run main
         main()
@@ -23,11 +28,16 @@ def test_main_flow_query_export():
     """测试主流程：执行查询并导出"""
     with patch('builtins.input', side_effect=['SELECT * FROM table1', 'exit']), \
          patch('main.DatabaseManager') as MockDB, \
-         patch('main.ExcelExporter') as MockExporter:
+         patch('main.ExcelExporter') as MockExporter, \
+         patch('main.LLMClient') as MockLLM, \
+         patch('main.SchemaLoader') as MockSchemaLoader:
         
         # Setup mock
         mock_db_instance = MockDB.return_value
         mock_exporter_instance = MockExporter.return_value
+        
+        mock_schema_loader = MockSchemaLoader.return_value
+        mock_schema_loader.get_schema_context.return_value = "Mock Schema Context"
         
         # Mock query result
         df_mock = pd.DataFrame({'id': [1], 'val': ['test']})

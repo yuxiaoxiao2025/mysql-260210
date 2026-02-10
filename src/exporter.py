@@ -51,8 +51,9 @@ class ExcelExporter:
         # 自动调整列宽
         for i, col in enumerate(df.columns):
             # 计算该列最大宽度 (表头和内容取最大值)
+            # 使用 apply(str) 确保兼容 NaN (float) 类型，避免 object of type 'float' has no len() 错误
             column_len = max(
-                df[col].astype(str).map(len).max(),
+                df[col].apply(lambda x: len(str(x))).max(),
                 len(str(col))
             )
             # 限制最大宽度，避免过宽

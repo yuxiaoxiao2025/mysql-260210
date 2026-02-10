@@ -34,10 +34,10 @@ class DatabaseManager:
         inspector = inspect(self.engine)
         return inspector.get_table_names()
 
-    def get_table_schema(self, table_name):
+    def get_table_schema(self, table_name, schema=None):
         """获取表结构信息"""
         inspector = inspect(self.engine)
-        columns = inspector.get_columns(table_name)
+        columns = inspector.get_columns(table_name, schema=schema)
         # 简化输出，只保留 name, type, comment
         schema_info = []
         for col in columns:

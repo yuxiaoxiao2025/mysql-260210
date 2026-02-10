@@ -4,3 +4,5 @@ pandas
 XlsxWriter
 python-dotenv
 openpyxl
+dashscope
+pytest
