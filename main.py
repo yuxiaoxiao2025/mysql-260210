@@ -5,6 +5,8 @@ from src.db_manager import DatabaseManager
 from src.exporter import ExcelExporter
 from src.schema_loader import SchemaLoader
 from src.llm_client import LLMClient
+from src.sql_safety import validate_sql, detect_intent
+from src.preview_renderer import should_render_html
 
 def print_welcome():
     print("=" * 50)
@@ -73,17 +75,18 @@ def main():
 
             # Check if it looks like SQL
             first_word = user_input.lower().split()[0] if user_input else ""
-            is_sql = first_word in ['select', 'show', 'describe', 'desc', 'explain', 'update', 'delete', 'insert']
-            
+            is_sql = first_word in ['select', 'show', 'describe', 'desc', 'explain', 'update', 'delete', 'insert', 'drop', 'alter', 'truncate']
+
             sql_to_execute = user_input
             export_filename = None
             export_sheet_name = "Sheet1"
-            
+            is_mutation = False  # Track if this is a DML operation
+
             if not is_sql:
                 if not llm.api_key:
                     print("❌ 未配置 API Key，无法使用自然语言查询。请在 .env 中设置 DASHSCOPE_API_KEY。")
                     continue
-                    
+
                 print("🧠 正在思考您的需求...")
                 try:
                     result = llm.generate_sql(user_input, schema_context)
@@ -91,56 +94,143 @@ def main():
                     print(f"🤖 生成的 SQL:\n{result['sql']}")
                     print(f"💡 思考过程: {result.get('reasoning', '无')}")
                     print("-" * 30)
-                    
+
                     confirm = input("❓ 是否执行此查询？(y/n) > ")
                     if confirm.lower() != 'y':
                         continue
-                        
+
                     sql_to_execute = result['sql']
                     export_filename = result.get('filename')
                     export_sheet_name = result.get('sheet_name', 'Sheet1')
-                    
+                    is_mutation = result.get('intent') == 'mutation'
+
                 except Exception as e:
                     print(f"❌ AI 生成失败: {e}")
                     continue
             else:
-                 # Standard SQL execution
-                 if not user_input.lower().startswith('select') and not user_input.lower().startswith('show'):
-                    confirm = input("⚠️  这不是一个查询语句 (SELECT/SHOW)。确定要执行吗？(y/n) > ")
+                # Direct SQL input - detect intent
+                intent = detect_intent(user_input)
+
+                # Validate SQL safety first (reject dangerous operations)
+                is_valid, reason = validate_sql(user_input)
+                if not is_valid:
+                    print(f"❌ 危险操作，拒绝执行: {reason}")
+                    continue
+
+                # Check if this is a mutation operation
+                is_mutation = intent in ['insert', 'update', 'delete']
+
+                if is_mutation:
+                    # For direct DML input, we need preview_sql and key_columns
+                    # Since we don't have LLM to generate them, ask user or use defaults
+                    print("⚠️  检测到数据变更操作 (INSERT/UPDATE/DELETE)")
+                    print("⚠️  直接输入的 SQL 缺少预览信息，建议使用自然语言模式。")
+
+                    confirm = input("❓ 仍要继续执行吗？(y/n) > ")
                     if confirm.lower() != 'y':
                         continue
 
-            print("⏳ 正在查询...")
-            start_time = datetime.datetime.now()
-            
-            try:
-                df = db.execute_query(sql_to_execute)
-                duration = (datetime.datetime.now() - start_time).total_seconds()
-                print(f"✅ 查询成功！耗时 {duration:.2f}秒，共 {len(df)} 行数据。")
-                
-                if not df.empty:
-                    if not export_filename:
-                         # Fallback to existing filename generation
-                         filename_part = "query_result"
-                         tokens = sql_to_execute.lower().split()
-                         if 'from' in tokens:
-                            try:
-                                idx = tokens.index('from') + 1
-                                if idx < len(tokens):
-                                    filename_part = tokens[idx].replace('`', '').replace(';', '')
-                            except:
-                                pass
-                         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-                         export_filename = f"{filename_part}_{timestamp}"
-                    
-                    print(f"💾 正在导出到 Excel...")
-                    filepath = exporter.export(df, export_filename, sheet_name=export_sheet_name)
-                    print(f"🎉 导出完成：{filepath}")
-                else:
-                    print("⚠️  查询结果为空，未生成文件。")
-                    
-            except Exception as e:
-                print(f"❌ 查询执行失败: {e}")
+                    # For direct input, we can't provide preview, skip transaction preview
+                    is_mutation = False  # Fall back to regular execution
+
+            # Execute based on operation type
+            if is_mutation:
+                # Handle mutation with transaction preview
+                print("🔍 正在预览变更...")
+                try:
+                    # Get mutation details from LLM result
+                    # For direct SQL input, is_mutation would be False due to the check above
+                    if isinstance(llm.generate_sql(user_input, schema_context), dict):
+                        # This shouldn't happen as we set is_mutation=False for direct input
+                        pass
+
+                    # Extract preview information
+                    preview_sql = None
+                    key_columns = []
+                    warnings = []
+
+                    # For LLM-generated queries
+                    if hasattr(llm, 'last_result'):
+                        result = llm.last_result
+                        preview_sql = result.get('preview_sql')
+                        key_columns = result.get('key_columns', [])
+                        warnings = result.get('warnings', [])
+
+                    # For safety, if we don't have preview info, skip transaction preview
+                    if not preview_sql:
+                        print("⚠️  缺少预览 SQL，使用常规执行模式")
+                        df = db.execute_query(sql_to_execute)
+                        print(f"✅ 执行成功！共 {len(df)} 行受影响。")
+                    else:
+                        # Execute with transaction preview (first pass: no commit)
+                        result = db.execute_in_transaction(
+                            mutation_sql=sql_to_execute,
+                            preview_sql=preview_sql,
+                            key_columns=key_columns,
+                            commit=False
+                        )
+
+                        # Display diff summary
+                        diff = result['diff_summary']
+                        print("📊 变更预览:")
+                        print(f"  - 插入: {diff['inserted']} 行")
+                        print(f"  - 更新: {diff['updated']} 行")
+                        print(f"  - 删除: {diff['deleted']} 行")
+
+                        # Show warnings if any
+                        for warning in warnings:
+                            print(f"⚠️  {warning}")
+
+                        # Second confirmation
+                        confirm = input("❓ 确认要提交这些变更吗？(y/n) > ")
+                        if confirm.lower() == 'y':
+                            # Execute again with commit=True
+                            result = db.execute_in_transaction(
+                                mutation_sql=sql_to_execute,
+                                preview_sql=preview_sql,
+                                key_columns=key_columns,
+                                commit=True
+                            )
+                            print("✅ 变更已提交！")
+                        else:
+                            print("❌ 已取消，变更已回滚。")
+
+                except Exception as e:
+                    print(f"❌ 执行失败: {e}")
+
+            else:
+                # Regular query execution
+                print("⏳ 正在查询...")
+                start_time = datetime.datetime.now()
+
+                try:
+                    df = db.execute_query(sql_to_execute)
+                    duration = (datetime.datetime.now() - start_time).total_seconds()
+                    print(f"✅ 查询成功！耗时 {duration:.2f}秒，共 {len(df)} 行数据。")
+
+                    if not df.empty:
+                        if not export_filename:
+                             # Fallback to existing filename generation
+                             filename_part = "query_result"
+                             tokens = sql_to_execute.lower().split()
+                             if 'from' in tokens:
+                                try:
+                                    idx = tokens.index('from') + 1
+                                    if idx < len(tokens):
+                                        filename_part = tokens[idx].replace('`', '').replace(';', '')
+                                except:
+                                    pass
+                             timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                             export_filename = f"{filename_part}_{timestamp}"
+
+                        print(f"💾 正在导出到 Excel...")
+                        filepath = exporter.export(df, export_filename, sheet_name=export_sheet_name)
+                        print(f"🎉 导出完成：{filepath}")
+                    else:
+                        print("⚠️  查询结果为空，未生成文件。")
+
+                except Exception as e:
+                    print(f"❌ 查询执行失败: {e}")
 
         except KeyboardInterrupt:
             print("\n👋 再见！")
