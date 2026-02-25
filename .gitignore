@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 .env
 output/
+frontend/node_modules/
+nul
