@@ -78,7 +78,7 @@ def main():
             is_sql = first_word in ['select', 'show', 'describe', 'desc', 'explain', 'update', 'delete', 'insert', 'drop', 'alter', 'truncate']
 
             sql_to_execute = user_input
-            export_filename = None
+            base_filename = None
             export_sheet_name = "Sheet1"
             is_mutation = False  # Track if this is a DML operation
 
@@ -100,12 +100,13 @@ def main():
                         continue
 
                     sql_to_execute = result['sql']
-                    export_filename = result.get('filename')
+                    base_filename = result.get('filename', 'query_result')
                     export_sheet_name = result.get('sheet_name', 'Sheet1')
                     is_mutation = result.get('intent') == 'mutation'
 
                 except Exception as e:
                     print(f"❌ AI 生成失败: {e}")
+                    llm.add_error_to_history(user_input, str(e))
                     continue
             else:
                 # Direct SQL input - detect intent
@@ -197,6 +198,9 @@ def main():
 
                 except Exception as e:
                     print(f"❌ 执行失败: {e}")
+                    # Record error in conversation history
+                    if not is_sql:
+                        llm.add_error_to_history(user_input, str(e))
 
             else:
                 # Regular query execution
@@ -209,19 +213,23 @@ def main():
                     print(f"✅ 查询成功！耗时 {duration:.2f}秒，共 {len(df)} 行数据。")
 
                     if not df.empty:
-                        if not export_filename:
-                             # Fallback to existing filename generation
-                             filename_part = "query_result"
-                             tokens = sql_to_execute.lower().split()
-                             if 'from' in tokens:
+                        # Always use timestamp to avoid file conflicts
+                        if not base_filename:
+                            # Fallback to existing filename generation
+                            filename_part = "query_result"
+                            tokens = sql_to_execute.lower().split()
+                            if 'from' in tokens:
                                 try:
                                     idx = tokens.index('from') + 1
                                     if idx < len(tokens):
                                         filename_part = tokens[idx].replace('`', '').replace(';', '')
                                 except:
                                     pass
-                             timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-                             export_filename = f"{filename_part}_{timestamp}"
+                            base_filename = filename_part
+                        
+                        # Always add timestamp
+                        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                        export_filename = f"{base_filename}_{timestamp}"
 
                         print(f"💾 正在导出到 Excel...")
                         filepath = exporter.export(df, export_filename, sheet_name=export_sheet_name)
@@ -231,6 +239,9 @@ def main():
 
                 except Exception as e:
                     print(f"❌ 查询执行失败: {e}")
+                    # Record error in conversation history
+                    if not is_sql:
+                        llm.add_error_to_history(user_input, str(e))
 
         except KeyboardInterrupt:
             print("\n👋 再见！")
