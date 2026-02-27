@@ -1,11 +1,164 @@
 # Python 最佳实践
 
 ## 概述
-遵循 PEP 8 规范，编写清晰、可维护的 Python 代码。
+遵循 PEP 8 规范和 Python 3.10+ 特性，编写清晰、可维护、类型安全的代码。
 
 ## 核心规范
 
-### 命名规范
+### PEP 8 风格指南
+- 使用 Black formatter 默认设置（88 字符行长度）
+- 使用 4 个空格缩进，禁止使用 tab
+- 使用有意义的描述性变量名
+- 保持函数职责单一（单一职责原则）
+
+### 类型提示（Type Hints）
+- 始终为函数签名包含类型注解
+- 从 `typing` 模块导入：`List`, `Dict`, `Optional`, `Union` 等
+- 使用 `TypeAlias` 定义复杂类型
+- 优先使用显式类型而非隐式类型
+
+```python
+from typing import List, Optional, Dict, Any
+from pathlib import Path
+
+def process_items(
+    items: List[str],
+    limit: Optional[int] = None
+) -> List[str]:
+    """处理项目到可选限制。
+
+    Args:
+        items: 要处理的项目列表
+        limit: 最大处理项目数（None = 全部）
+
+    Returns:
+        处理后的项目
+
+    Raises:
+        ValueError: 如果 limit 为负数
+    """
+    if limit is not None and limit < 0:
+        raise ValueError(f"Limit must be non-negative, got {limit}")
+    return items[:limit] if limit else items
+```
+
+### 现代 Python 习惯用法
+- 使用 f-strings 进行字符串格式化
+- 优先使用 `pathlib.Path` 而非 `os.path`
+- 使用 dataclasses 或 Pydantic 定义数据结构
+- 为公共函数/类编写 docstring（Google 或 NumPy 风格）
+- 使用 `@property` 定义计算属性
+
+```python
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass
+class Config:
+    name: str
+    version: str
+    debug: bool = False
+
+    @property
+    def config_file(self) -> Path:
+        """配置文件路径。"""
+        return Path(f"{self.name}-{self.version}.json")
+
+    def __post_init__(self) -> None:
+        """初始化后验证配置。"""
+        if not self.name:
+            raise ValueError("Config name cannot be empty")
+
+# 使用 f-strings
+name = "Alice"
+message = f"Hello, {name}!"
+```
+
+## 错误处理
+
+### 健壮的错误处理
+- 使用特定异常类型（`ValueError`, `TypeError`, `KeyError`）
+- 提供有帮助的、可操作的错误消息
+- 使用上下文管理器清理资源（`with` 语句）
+- 避免裸 `except:` 子句
+
+```python
+# 正确方式
+import logging
+
+logger = logging.getLogger(__name__)
+
+try:
+    result = risky_operation()
+except (ValueError, TypeError) as e:
+    logger.error(f"操作失败: {e}")
+    raise
+except ConnectionError as e:
+    logger.error(f"连接失败: {e}")
+    raise
+
+# 错误方式 - 不要使用
+try:
+    risky_operation()
+except:
+    pass
+```
+
+### 上下文管理器
+```python
+from contextlib import contextmanager
+from typing import Iterator
+
+@contextmanager
+def open_resource(path: str) -> Iterator[Any]:
+    """打开资源并自动清理。"""
+    resource = FileHandle(path)
+    try:
+        resource.open()
+        yield resource
+    finally:
+        resource.close()
+
+# 使用
+with open_resource("data.txt") as f:
+    data = f.read()
+```
+
+## 反模式避免
+
+### 可变默认参数
+```python
+# 错误
+def add_item(item, items=[]):
+    items.append(item)
+    return items
+
+# 正确
+def add_item(item, items=None):
+    if items is None:
+        items = []
+    items.append(item)
+    return items
+```
+
+### 裸异常捕获
+```python
+# 错误
+try:
+    risky_operation()
+except:
+    pass
+
+# 正确
+try:
+    risky_operation()
+except (ValueError, TypeError) as e:
+    logger.error(f"操作失败: {e}")
+    raise
+```
+
+## 命名规范
+
 ```python
 # 变量、函数、方法、包、模块
 lower_case_with_underscores = "value"
@@ -30,11 +183,13 @@ MAX_CONNECTIONS = 100
 DEFAULT_TIMEOUT = 30
 ```
 
-### 导入规范
+## 导入顺序
+
 ```python
 # 系统导入
 import os
 import sys
+from pathlib import Path
 from datetime import datetime
 
 # 第三方导入
@@ -47,27 +202,8 @@ from src.db_manager import DatabaseManager
 from src.llm_client import LLMClient
 ```
 
-### 代码风格
-```python
-# 缩进：4 个空格（不要使用 tab）
+## 文档字符串
 
-# 行长度：建议 80-100 字符
-long_string = (
-    "This is a very long string that spans multiple lines "
-    "to keep line length within the recommended limit"
-)
-
-# 使用 with 语句管理资源
-with open('file.txt', 'r') as f:
-    content = f.read()
-
-# 避免冗余命名
-import audio
-core = audio.Core()  # 正确
-core = audio.AudioCore()  # 错误 - 冗余
-```
-
-### 文档字符串
 ```python
 def connect_database(host: str, port: int) -> bool:
     """连接到数据库。
@@ -78,6 +214,9 @@ def connect_database(host: str, port: int) -> bool:
 
     Returns:
         连接成功返回 True，否则返回 False
+
+    Raises:
+        ConnectionError: 连接失败时抛出
     """
     pass
 
@@ -92,42 +231,25 @@ class DataExporter:
         self.output_dir = output_dir
 ```
 
-### 错误处理
+## 代码风格
+
 ```python
-# 不要使用空的 except 块
-try:
-    result = some_function()
-except Exception as e:
-    logger.error(f"操作失败: {e}")
-    raise
+# 缩进：4 个空格（不要使用 tab）
 
-# 使用具体的异常类型
-try:
-    result = db.execute(query)
-except ConnectionError as e:
-    logger.error(f"数据库连接失败: {e}")
-    raise
-except ValueError as e:
-    logger.error(f"参数错误: {e}")
-    raise
-```
+# 行长度：建议 88 字符（Black 默认）
+long_string = (
+    "This is a very long string that spans multiple lines "
+    "to keep line length within recommended limit"
+)
 
-### 类型提示
-```python
-from typing import List, Dict, Optional
+# 使用 with 语句管理资源
+with open('file.txt', 'r') as f:
+    content = f.read()
 
-def process_data(data: List[Dict[str, any]]) -> Optional[str]:
-    """处理数据并返回结果。
-
-    Args:
-        data: 要处理的数据列表
-
-    Returns:
-        处理结果，失败时返回 None
-    """
-    if not data:
-        return None
-    return "processed"
+# 避免冗余命名
+import audio
+core = audio.Core()  # 正确
+core = audio.AudioCore()  # 错误 - 冗余
 ```
 
 ## 最佳实践
@@ -188,7 +310,13 @@ logger.critical("严重错误")
 ```
 
 ## 常用工具
-- **代码检查**: `flake8`
-- **格式化**: `black`
-- **类型检查**: `mypy`
-- **导入排序**: `isort`
+- **代码格式化**: `black src/ tests/`
+- **代码检查**: `ruff check src/ tests/`
+- **类型检查**: `mypy src/`
+- **导入排序**: `ruff check --select I src/`
+
+## 推荐库
+- **pydantic**: 使用类型提示的数据验证
+- **httpx**: 现代 HTTP 客户端
+- **rich**: 美观的终端输出
+- **typer**: 带类型提示的 CLI 框架

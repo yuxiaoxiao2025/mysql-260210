@@ -21,6 +21,7 @@ def create_db_engine():
         max_overflow=10,
         pool_timeout=30,
         pool_recycle=3600,  # 1 小时回收连接
+        pool_pre_ping=True,  # 连接前检查连接有效性
         echo=False  # 生产环境关闭 SQL 日志
     )
     return engine
@@ -152,18 +153,6 @@ def batch_insert(data: list[dict]):
         )
 ```
 
-### 使用索引
-```python
-# 确保查询字段有适当的索引
-def create_indexes():
-    """创建必要的索引"""
-    engine = create_db_engine()
-
-    with engine.connect() as conn:
-        conn.execute(text("CREATE INDEX idx_users_email ON users(email)"))
-        conn.execute(text("CREATE INDEX idx_users_active ON users(active)"))
-```
-
 ### 查询优化
 ```python
 # 只选择需要的字段
@@ -175,6 +164,31 @@ def get_user_summary():
 # 使用 LIMIT 限制结果集
 def get_recent_users(limit: int = 100):
     query = text("SELECT * FROM users ORDER BY created_at DESC LIMIT :limit")
+
+# 使用 EXPLAIN 分析慢查询
+def analyze_query_performance():
+    query = text("EXPLAIN SELECT * FROM large_table WHERE created_at > '2024-01-01'")
+    with engine.connect() as conn:
+        result = conn.execute(query)
+        return result.fetchall()
+```
+
+### 使用索引
+```python
+# 确保查询字段有适当的索引
+def create_indexes():
+    """创建必要的索引"""
+    engine = create_db_engine()
+
+    with engine.connect() as conn:
+        # 单列索引
+        conn.execute(text("CREATE INDEX idx_users_email ON users(email)"))
+
+        # 复合索引
+        conn.execute(text("CREATE INDEX idx_users_active_created ON users(active, created_at)"))
+
+        # 部分索引（仅索引活跃用户）
+        conn.execute(text("CREATE INDEX idx_active_users ON users(created_at) WHERE active = true"))
 ```
 
 ## 连接池配置
@@ -312,6 +326,25 @@ def create_readonly_engine():
     return create_engine(readonly_url)
 ```
 
+### 4. 验证用户输入的 SQL
+```python
+def validate_sql_safety(sql: str) -> bool:
+    """验证 SQL 是否安全（仅允许 SELECT）"""
+    sql_upper = sql.strip().upper()
+    dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE']
+
+    for keyword in dangerous_keywords:
+        if keyword in sql_upper:
+            raise ValueError(f"不允许的 SQL 关键字: {keyword}")
+
+    return True
+
+def execute_safe_query(sql: str, params: dict = None):
+    """安全执行查询"""
+    validate_sql_safety(sql)
+    return execute_query(sql, params)
+```
+
 ## 调试和监控
 
 ### 开启 SQL 日志
@@ -382,3 +415,61 @@ def get_statistics():
         result = conn.execute(query, {"start_date": datetime.now() - timedelta(days=30)})
         return result.fetchone()
 ```
+
+## MySQL 特定优化
+
+### MySQL 索引优化
+```python
+def create_mysql_indexes():
+    """MySQL 索引优化"""
+    engine = create_db_engine()
+
+    with engine.connect() as conn:
+        # 复合索引
+        conn.execute(text("CREATE INDEX idx_orders_user_created ON orders(user_id, created_at DESC)"))
+
+        # FULLTEXT 索引（文本搜索）
+        conn.execute(text("CREATE FULLTEXT INDEX idx_products_search ON products(name, description)"))
+
+        # 前缀索引（大文本字段）
+        conn.execute(text("CREATE INDEX idx_large_text ON large_table(text_column(100))"))
+```
+
+### MySQL 查询分析
+```python
+def analyze_mysql_query():
+    """使用 EXPLAIN 分析 MySQL 查询"""
+    query = text("EXPLAIN FORMAT=JSON SELECT * FROM users WHERE email = :email")
+    with engine.connect() as conn:
+        result = conn.execute(query, {"email": "test@example.com"})
+        return result.fetchone()
+```
+
+### MySQL 批量更新
+```python
+def batch_update_updates(updates: list[dict]):
+    """MySQL 批量更新"""
+    engine = create_db_engine()
+
+    with engine.connect() as conn:
+        # 使用 VALUES 子句批量更新
+        query = text("""
+            UPDATE products p
+            JOIN (
+                SELECT :id as id, :price as price
+            ) AS updates ON p.id = updates.id
+            SET p.price = updates.price
+        """)
+        for update in updates:
+            conn.execute(query, update)
+```
+
+## 禁止事项
+
+- 禁止使用字符串拼接构建 SQL 查询
+- 禁止在生产环境中启用 `echo=True`（SQL 日志）
+- 禁止不关闭数据库连接或引擎
+- 禁止在循环中执行单独的 SQL 语句（使用批量操作）
+- 禁止不验证用户输入就执行 SQL
+- 禁止使用 `SELECT *` 而不指定具体字段
+- 禁止在没有索引的列上进行 JOIN 或 WHERE 操作
