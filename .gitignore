@@ -1,8 +1,16 @@
 .worktrees/
 .venv/
+venv/
 __pycache__/
 *.pyc
 .env
 output/
 frontend/node_modules/
 nul
+.pytest_cache/
+.coverage
+*.egg-info/
+dist/
+build/
+.DS_Store
+*.log
