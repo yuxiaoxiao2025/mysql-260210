@@ -20,7 +20,8 @@ build/
 .agents/
 .sisyphus/
 docs/plans/
-
+前端操作截图/
+.spec-workflow/
 # Python 运行库
 *.pyo
 *.pyd

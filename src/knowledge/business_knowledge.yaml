@@ -1,0 +1,384 @@
+# 业务知识库配置
+# 定义业务操作模板、参数枚举映射和表关系
+
+# 业务操作模板
+operations:
+  # ========== 车牌管理操作 ==========
+  plate_distribute:
+    name: 车牌下发
+    description: 将车牌下发到指定场库，包含更新操作员、新增绑定、更新下发状态三个步骤
+    keywords: [下发, 分发, 推送, 分配, 派发]
+    category: mutation
+    params:
+      - name: plate
+        type: string
+        description: 车牌号
+        required: true
+        pattern: "^[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼][A-Z][A-Z0-9]{5,6}$"
+        example: "沪ABC1234"
+      - name: park_name
+        type: string
+        description: 场库名称
+        required: true
+        enum_from: park_names
+      - name: operator_name
+        type: string
+        description: 操作员姓名
+        required: false
+        enum_from: operator_names
+    steps:
+      - name: 更新车牌操作员
+        description: 将车牌关联到指定操作员
+        sql: |
+          UPDATE parkcloud.cloud_fixed_plate
+          SET operator_id = (SELECT id FROM parkcloud.cloud_operator WHERE name = :operator_name LIMIT 1),
+              editflag = NOW()
+          WHERE plate = :plate
+        affects_rows: single
+      - name: 新增车牌-场库绑定
+        description: 创建车牌与场库的绑定关系
+        sql: |
+          INSERT INTO parkcloud.cloud_fixed_plate_park (plate, park_id, operator_id, editflag)
+          SELECT :plate, p.id, o.id, NOW()
+          FROM parkcloud.cloud_park p, parkcloud.cloud_operator o
+          WHERE p.name = :park_name AND o.name = :operator_name
+        affects_rows: single
+      - name: 更新下发状态
+        description: 更新车牌在场库的下发状态
+        sql: |
+          UPDATE parkcloud.cloud_fixed_plate_park_down d
+          JOIN parkcloud.cloud_park p ON d.park_id = p.id
+          SET d.state = 1, d.editflag = NOW()
+          WHERE p.name = :park_name AND d.plate = :plate
+        affects_rows: single
+
+  plate_query:
+    name: 车牌查询
+    description: 查询车牌信息及录入人
+    keywords: [查询, 搜索, 查看, 谁录入, 找车牌, 车牌信息]
+    category: query
+    params:
+      - name: plate
+        type: string
+        description: 车牌号（可选，不填则查询所有）
+        required: false
+        pattern: "^[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼][A-Z][A-Z0-9]{5,6}$"
+    sql: |
+      SELECT p.plate AS 车牌, p.name AS 车主, p.state AS 状态,
+             p.start AS 开始时间, p.end AS 结束时间,
+             o.name AS 录入人, p.memo AS 备注
+      FROM parkcloud.cloud_fixed_plate p
+      LEFT JOIN parkcloud.cloud_operator o ON p.operator_id = o.id
+      WHERE (:plate IS NULL OR p.plate = :plate)
+      ORDER BY p.id DESC
+      LIMIT 100
+
+  plate_expire_soon:
+    name: 即将到期车牌
+    description: 查询指定天数内到期的车牌
+    keywords: [到期, 过期, 续期, 快到期, 即将到期]
+    category: query
+    params:
+      - name: days
+        type: int
+        description: 查询未来多少天内到期的车牌
+        required: false
+        default: 30
+        min: 1
+        max: 365
+    sql: |
+      SELECT plate AS 车牌, name AS 车主, end AS 到期时间, memo AS 备注,
+             DATEDIFF(end, NOW()) AS 剩余天数
+      FROM parkcloud.cloud_fixed_plate
+      WHERE state = 1 AND end BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL :days DAY)
+      ORDER BY end
+
+  plate_add:
+    name: 新增车牌
+    description: 新增一个固定车牌
+    keywords: [新增, 添加, 录入, 创建车牌, 加车牌]
+    category: mutation
+    params:
+      - name: plate
+        type: string
+        description: 车牌号
+        required: true
+        pattern: "^[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼][A-Z][A-Z0-9]{5,6}$"
+      - name: name
+        type: string
+        description: 车主名称
+        required: true
+      - name: start
+        type: date
+        description: 开始日期
+        required: false
+        default: "NOW()"
+      - name: end
+        type: date
+        description: 结束日期
+        required: true
+      - name: memo
+        type: string
+        description: 备注
+        required: false
+    steps:
+      - name: 插入车牌记录
+        sql: |
+          INSERT INTO parkcloud.cloud_fixed_plate (plate, name, state, start, end, memo, editflag)
+          VALUES (:plate, :name, 1, :start, :end, :memo, NOW())
+        affects_rows: single
+
+  plate_update:
+    name: 更新车牌
+    description: 更新车牌信息（车主、有效期等）
+    keywords: [更新, 修改, 编辑车牌, 改车牌]
+    category: mutation
+    params:
+      - name: plate
+        type: string
+        description: 车牌号
+        required: true
+      - name: name
+        type: string
+        description: 车主名称
+        required: false
+      - name: end
+        type: date
+        description: 新的结束日期
+        required: false
+      - name: memo
+        type: string
+        description: 备注
+        required: false
+    steps:
+      - name: 更新车牌信息
+        sql: |
+          UPDATE parkcloud.cloud_fixed_plate
+          SET name = COALESCE(:name, name),
+              end = COALESCE(:end, end),
+              memo = COALESCE(:memo, memo),
+              editflag = NOW()
+          WHERE plate = :plate
+        affects_rows: single
+
+  plate_delete:
+    name: 删除车牌
+    description: 软删除车牌（设置状态为0）
+    keywords: [删除, 移除, 注销, 作废车牌]
+    category: mutation
+    params:
+      - name: plate
+        type: string
+        description: 车牌号
+        required: true
+    steps:
+      - name: 禁用车牌
+        sql: |
+          UPDATE parkcloud.cloud_fixed_plate
+          SET state = 0, editflag = NOW()
+          WHERE plate = :plate
+        affects_rows: single
+
+  # ========== 操作员管理 ==========
+  operator_list:
+    name: 操作员列表
+    description: 查看所有操作员信息
+    keywords: [操作员, 人员, 用户, 员工, 谁在用]
+    category: query
+    params: []
+    sql: |
+      SELECT id, login_name AS 登录名, name AS 姓名,
+             state AS 状态, phone AS 电话, email AS 邮箱
+      FROM parkcloud.cloud_operator
+      ORDER BY state DESC, id
+
+  operator_query:
+    name: 查询操作员
+    description: 根据姓名或登录名查询操作员
+    keywords: [查操作员, 找人, 谁是]
+    category: query
+    params:
+      - name: keyword
+        type: string
+        description: 搜索关键词（姓名或登录名）
+        required: false
+    sql: |
+      SELECT id, login_name AS 登录名, name AS 姓名,
+             state AS 状态, phone AS 电话
+      FROM parkcloud.cloud_operator
+      WHERE (:keyword IS NULL OR name LIKE CONCAT('%', :keyword, '%')
+             OR login_name LIKE CONCAT('%', :keyword, '%'))
+      ORDER BY state DESC, id
+
+  # ========== 场库管理 ==========
+  park_list:
+    name: 场库列表
+    description: 查看所有场库信息
+    keywords: [场库, 停车场, 园区, 场地列表]
+    category: query
+    params: []
+    sql: |
+      SELECT id, name AS 场库名称, address AS 地址,
+             state AS 状态, create_time AS 创建时间
+      FROM parkcloud.cloud_park
+      ORDER BY state DESC, id
+
+  park_query:
+    name: 查询场库
+    description: 根据名称或地址查询场库
+    keywords: [查场库, 找停车场, 场库信息]
+    category: query
+    params:
+      - name: keyword
+        type: string
+        description: 搜索关键词（名称或地址）
+        required: false
+    sql: |
+      SELECT id, name AS 场库名称, address AS 地址,
+             state AS 状态, create_time AS 创建时间
+      FROM parkcloud.cloud_park
+      WHERE (:keyword IS NULL OR name LIKE CONCAT('%', :keyword, '%')
+             OR address LIKE CONCAT('%', :keyword, '%'))
+      ORDER BY state DESC, id
+
+  # ========== 统计查询 ==========
+  stats_plate_by_park:
+    name: 场库车牌统计
+    description: 统计各场库的车牌数量
+    keywords: [统计, 车牌数, 各场库, 多少车牌]
+    category: query
+    params: []
+    sql: |
+      SELECT p.name AS 场库名称, COUNT(pp.plate) AS 车牌数量
+      FROM parkcloud.cloud_park p
+      LEFT JOIN parkcloud.cloud_fixed_plate_park pp ON p.id = pp.park_id
+      WHERE p.state = 1
+      GROUP BY p.id, p.name
+      ORDER BY 车牌数量 DESC
+
+  stats_plate_by_operator:
+    name: 操作员车牌统计
+    description: 统计各操作员录入的车牌数量
+    keywords: [录入统计, 谁录入多少, 操作员统计]
+    category: query
+    params: []
+    sql: |
+      SELECT o.name AS 操作员, COUNT(p.plate) AS 录入数量
+      FROM parkcloud.cloud_operator o
+      LEFT JOIN parkcloud.cloud_fixed_plate p ON o.id = p.operator_id
+      WHERE o.state = 1
+      GROUP BY o.id, o.name
+      ORDER BY 录入数量 DESC
+
+# 参数枚举映射 - 动态从数据库获取
+enums:
+  park_names:
+    description: 所有激活场库名称
+    source: "SELECT name FROM parkcloud.cloud_park WHERE state = 1 ORDER BY name"
+    cache_ttl: 3600  # 缓存1小时
+    value_field: name
+    display_field: name
+
+  operator_names:
+    description: 所有激活操作员姓名
+    source: "SELECT name FROM parkcloud.cloud_operator WHERE state = 1 ORDER BY name"
+    cache_ttl: 3600
+    value_field: name
+    display_field: name
+
+  operator_login_names:
+    description: 所有激活操作员登录名
+    source: "SELECT login_name, name FROM parkcloud.cloud_operator WHERE state = 1 ORDER BY name"
+    cache_ttl: 3600
+    value_field: login_name
+    display_field: name
+
+  plate_list:
+    description: 所有激活车牌
+    source: "SELECT plate FROM parkcloud.cloud_fixed_plate WHERE state = 1 ORDER BY plate"
+    cache_ttl: 300  # 缓存5分钟（车牌变化较频繁）
+    value_field: plate
+    display_field: plate
+
+  plate_with_owner:
+    description: 车牌及车主信息
+    source: "SELECT plate, name FROM parkcloud.cloud_fixed_plate WHERE state = 1 ORDER BY plate"
+    cache_ttl: 300
+    value_field: plate
+    display_field: name
+
+# 表关系映射 - 用于智能关联查询
+relations:
+  - from_table: cloud_fixed_plate_park
+    from_column: park_id
+    to_table: cloud_park
+    to_column: id
+    display_column: name
+    description: 车牌-场库绑定关系
+
+  - from_table: cloud_fixed_plate
+    from_column: operator_id
+    to_table: cloud_operator
+    to_column: id
+    display_column: name
+    description: 车牌录入人
+
+  - from_table: cloud_fixed_plate_park
+    from_column: operator_id
+    to_table: cloud_operator
+    to_column: id
+    display_column: name
+    description: 绑定操作人
+
+  - from_table: cloud_fixed_plate_park_down
+    from_column: park_id
+    to_table: cloud_park
+    to_column: id
+    display_column: name
+    description: 下发场库
+
+# 操作类别说明
+categories:
+  query:
+    description: 查询操作，只读不修改数据
+    safe: true
+    requires_confirmation: false
+  mutation:
+    description: 变更操作，会修改数据
+    safe: false
+    requires_confirmation: true
+    preview_required: true
+
+# 省份简称映射（用于车牌校验提示）
+province_codes:
+  京: 北京
+  津: 天津
+  沪: 上海
+  渝: 重庆
+  冀: 河北
+  豫: 河南
+  云: 云南
+  辽: 辽宁
+  黑: 黑龙江
+  湘: 湖南
+  皖: 安徽
+  鲁: 山东
+  新: 新疆
+  苏: 江苏
+  浙: 浙江
+  赣: 江西
+  鄂: 湖北
+  桂: 广西
+  甘: 甘肃
+  晋: 山西
+  蒙: 内蒙古
+  陕: 陕西
+  吉: 吉林
+  闽: 福建
+  贵: 贵州
+  粤: 广东
+  青: 青海
+  藏: 西藏
+  川: 四川
+  宁: 宁夏
+  琼: 海南
