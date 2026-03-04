@@ -216,7 +216,9 @@ Your task is to understand the user's intent and match it to one of the predefin
 1. Analyze the user's query and determine which operation they want to perform.
 2. Extract parameter values from the query. Pay attention to:
    - Plate numbers (车牌): Format like "沪ABC1234"
-   - Park names (场库): Must match one of the available values
+   - Park names (场库): Must match one of the available values OR use "全部" for batch operations
+     * When user says "所有园区", "全部园区", "所有场库", "全部场库", or simply "所有"/"全部", extract as "全部"
+     * "全部" means distribute to ALL active parks
    - Operator names (操作员): Must match one of the available values
    - Dates: Parse relative dates like "30天内" to appropriate values
 3. If a parameter value is mentioned but not in the available values list, still extract it but add a warning.

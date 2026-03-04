@@ -331,6 +331,14 @@ class KnowledgeLoader:
         try:
             df = self.db_manager.execute_query(enum_def.source)
             values = []
+
+            # 对于 park_names 枚举，添加"全部"特殊值（批量下发功能）
+            if enum_name == "park_names":
+                values.append({
+                    "value": "全部",
+                    "display": "全部"
+                })
+
             for _, row in df.iterrows():
                 values.append({
                     "value": row[enum_def.value_field],
