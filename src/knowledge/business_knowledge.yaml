@@ -179,6 +179,27 @@ operations:
           WHERE plate = :plate
         affects_rows: single
 
+  plate_clear_memo:
+    name: 清空车辆备注
+    description: 将车牌备注设置为 NULL
+    keywords: [删除备注, 清空备注, 清除备注, 备注删除, 去掉备注, 移除备注, 清空车辆备注, 删除车辆备注, 去掉备注信息, 删除掉备注, 清除掉备注, 移除掉备注]
+    category: mutation
+    params:
+      - name: plate
+        type: string
+        description: 车牌号
+        required: true
+        pattern: "^[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼][A-Z][A-Z0-9]{5,6}$"
+        example: "沪ABC1234"
+    steps:
+      - name: 清空车牌备注
+        description: 将车牌备注设置为 NULL
+        sql: |
+          UPDATE parkcloud.cloud_fixed_plate
+          SET memo = NULL, editflag = NOW()
+          WHERE plate = :plate
+        affects_rows: single
+
   # ========== 操作员管理 ==========
   operator_list:
     name: 操作员列表
