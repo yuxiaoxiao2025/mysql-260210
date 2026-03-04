@@ -166,6 +166,13 @@ class IntentRecognizer:
 
         params = {}
 
+        # 特殊处理：删除备注类操作
+        memo_clear_keywords = ["删除备注", "清空备注", "清除备注", "备注删除",
+                               "去掉备注", "移除备注", "删除车辆备注", "清空车辆备注",
+                               "去除备注", "删除掉备注", "清除掉备注", "移除掉备注"]
+        if any(kw in text for kw in memo_clear_keywords):
+            params["memo"] = None  # 标记为清空
+
         for param in operation.params:
             if param.type == "string":
                 # 车牌号提取
@@ -179,11 +186,21 @@ class IntentRecognizer:
 
                 # 尝试从枚举中匹配
                 elif param.enum_from:
-                    enum_values = self.knowledge_loader.get_enum_values_flat(param.enum_from)
-                    for val in enum_values:
-                        if val.lower() in text.lower():
-                            params[param.name] = val
-                            break
+                    # 特殊处理：对于 park_names 枚举，优先检查"所有园区"/"全部园区"等表述
+                    if param.enum_from == "park_names":
+                        all_keywords = ["所有园区", "全部园区", "所有场库", "全部场库", "所有停车场", "全部停车场", "所有", "全部"]
+                        for keyword in all_keywords:
+                            if keyword in text:
+                                params[param.name] = "全部"
+                                break
+
+                    # 如果没有匹配到"全部"关键词，则从枚举中匹配具体场库名称
+                    if param.name not in params:
+                        enum_values = self.knowledge_loader.get_enum_values_flat(param.enum_from)
+                        for val in enum_values:
+                            if val.lower() in text.lower():
+                                params[param.name] = val
+                                break
 
             elif param.type == "int":
                 # 提取数字
