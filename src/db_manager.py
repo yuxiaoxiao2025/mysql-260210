@@ -2,7 +2,7 @@ from sqlalchemy import create_engine, text, inspect
 import pandas as pd
 from src.config import get_db_url
 from sqlalchemy.pool import QueuePool
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 
 class DatabaseManager:
     def __init__(self):
@@ -19,16 +19,51 @@ class DatabaseManager:
         """获取原始数据库连接"""
         return self.engine.connect()
         
-    def execute_query(self, sql):
-        """执行 SQL 查询并返回 DataFrame"""
+    def execute_query(self, sql: str, params: Optional[Dict[str, Any]] = None):
+        """
+        执行 SQL 查询并返回 DataFrame
+
+        Args:
+            sql: SQL 语句，支持命名参数 (:param_name)
+            params: 参数字典，可选
+
+        Returns:
+            DataFrame 查询结果
+        """
         try:
             with self.get_connection() as conn:
-                # 使用 pandas 的 read_sql 直接读取
-                df = pd.read_sql(text(sql), conn)
+                # 使用 pandas 的 read_sql 直接读取，支持参数化查询
+                df = pd.read_sql(text(sql), conn, params=params or {})
                 return df
         except Exception as e:
             print(f"Error executing query: {e}")
             raise
+
+    def execute_update(self, sql: str, params: Optional[Dict[str, Any]] = None) -> int:
+        """
+        执行变更 SQL (INSERT/UPDATE/DELETE) 并返回影响行数
+
+        最佳实践:
+        - 使用 engine.begin() 自动管理事务
+        - 使用 text() 包装 + 参数化绑定防止 SQL 注入
+        - 异常时自动回滚
+
+        Args:
+            sql: SQL 语句，支持命名参数 (:param_name)
+            params: 参数字典，可选
+
+        Returns:
+            受影响的行数 (int)
+
+        Example:
+            >>> db.execute_update("INSERT INTO users (name) VALUES (:name)", {"name": "Alice"})
+            1
+            >>> db.execute_update("UPDATE users SET age = :age WHERE id = :id", {"age": 25, "id": 1})
+            1
+        """
+        with self.engine.begin() as conn:
+            result = conn.execute(text(sql), params or {})
+            return result.rowcount
 
     def get_all_tables(self):
         """获取所有表名"""

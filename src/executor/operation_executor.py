@@ -6,7 +6,7 @@
 
 import logging
 import re
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -151,13 +151,26 @@ class OperationExecutor:
 
             # 枚举校验
             if param.enum_from:
-                validated = self.knowledge_loader.lookup_enum_value(param.enum_from, str(value))
-                if not validated:
-                    available = self.knowledge_loader.get_enum_values_flat(param.enum_from)
-                    return {
-                        "valid": False,
-                        "error": f"参数 {param.name} 的值 '{value}' 无效，可选值: {', '.join(available[:5])}..."
-                    }
+                # 支持列表形式的值（批量下发到多个园区）
+                if isinstance(value, list):
+                    # 验证列表中的每个值
+                    for item in value:
+                        validated = self.knowledge_loader.lookup_enum_value(param.enum_from, str(item))
+                        if not validated:
+                            available = self.knowledge_loader.get_enum_values_flat(param.enum_from)
+                            return {
+                                "valid": False,
+                                "error": f"参数 {param.name} 的值 '{item}' 无效，可选值: {', '.join(available[:5])}..."
+                            }
+                else:
+                    # 单个值验证
+                    validated = self.knowledge_loader.lookup_enum_value(param.enum_from, str(value))
+                    if not validated:
+                        available = self.knowledge_loader.get_enum_values_flat(param.enum_from)
+                        return {
+                            "valid": False,
+                            "error": f"参数 {param.name} 的值 '{value}' 无效，可选值: {', '.join(available[:5])}..."
+                        }
 
         return {"valid": True, "error": ""}
 
@@ -173,6 +186,33 @@ class OperationExecutor:
                 else:
                     filled[param.name] = param.default
         return filled
+
+    def _expand_park_name(self, park_name: Any) -> List[str]:
+        """
+        展开场库名称
+
+        如果 park_name="全部"，则展开为所有激活场库的列表
+        如果 park_name 是单个场库名称，则返回单元素列表
+        如果 park_name 已经是列表，则直接返回
+
+        Args:
+            park_name: 场库名称（可以是"全部"、单个名称或列表）
+
+        Returns:
+            场库名称列表
+        """
+        # 如果已经是列表，直接返回
+        if isinstance(park_name, list):
+            return park_name
+
+        # 如果是"全部"，展开为所有场库
+        if park_name == "全部":
+            all_parks = self.knowledge_loader.get_enum_values_flat("park_names")
+            # 过滤掉"全部"本身，只返回实际场库
+            return [p for p in all_parks if p != "全部"]
+
+        # 单个场库，返回单元素列表
+        return [park_name]
 
     def _execute_query(self, operation, params: Dict[str, Any]) -> ExecutionResult:
         """
@@ -194,18 +234,21 @@ class OperationExecutor:
             )
 
         try:
-            # 替换参数
-            sql = self._render_sql(operation.sql, params)
+            # 使用参数化查询防止 SQL 注入
+            from sqlalchemy import text
+            sql_template, bound_params = self._render_sql(operation.sql, params)
 
-            # 执行查询
-            df = self.db_manager.execute_query(sql)
+            # 执行查询（使用参数化）
+            with self.db_manager.get_connection() as conn:
+                df = pd.read_sql(text(sql_template), conn, params=bound_params)
 
             # 转换为字典列表
             results = df.to_dict('records')
 
+            # 用于显示的 SQL（不包含实际参数值，避免泄露敏感信息）
             preview = StepPreview(
                 step_name="查询结果",
-                sql=sql,
+                sql=sql_template,
                 before=[],
                 after=results,
                 affected_rows=len(results)
@@ -261,23 +304,25 @@ class OperationExecutor:
         try:
             # 生成每个步骤的预览
             for step in operation.steps:
-                sql = self._render_sql(step.sql, params)
+                sql_template, bound_params = self._render_sql(step.sql, params)
 
                 # 生成预览 SQL（SELECT 形式）
-                preview_sql = self._generate_preview_sql(sql, step.affects_rows)
+                preview_sql = self._generate_preview_sql(sql_template, step.affects_rows)
 
-                # 获取执行前数据
+                # 获取执行前数据（使用参数化查询）
                 before_data = []
                 if preview_sql:
                     try:
-                        before_df = self.db_manager.execute_query(preview_sql)
+                        from sqlalchemy import text
+                        with self.db_manager.get_connection() as conn:
+                            before_df = pd.read_sql(text(preview_sql), conn, params=bound_params)
                         before_data = before_df.to_dict('records')
                     except Exception as e:
                         logger.warning(f"获取预览数据失败: {e}")
 
                 preview = StepPreview(
                     step_name=step.name,
-                    sql=sql,
+                    sql=sql_template,
                     before=before_data,
                     after=[],  # 执行后填充
                     affected_rows=len(before_data)
@@ -336,12 +381,12 @@ class OperationExecutor:
             ExecutionResult
         """
         try:
-            # 依次执行每个步骤
+            # 依次执行每个步骤（使用参数化查询）
             for i, step in enumerate(operation.steps):
-                sql = self._render_sql(step.sql, params)
+                sql_template, bound_params = self._render_sql(step.sql, params)
 
-                # 使用数据库管理器的事务方法
-                result = self.db_manager.execute_update(sql)
+                # 使用数据库管理器的事务方法（支持参数化查询）
+                result = self.db_manager.execute_update(sql_template, bound_params)
 
                 # 更新预览
                 previews[i].affected_rows = result
@@ -365,33 +410,26 @@ class OperationExecutor:
                 error=f"事务执行失败: {str(e)}"
             )
 
-    def _render_sql(self, sql_template: str, params: Dict[str, Any]) -> str:
+    def _render_sql(self, sql_template: str, params: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         """
-        渲染 SQL 模板
+        渲染 SQL 模板，返回参数化查询
+
+        使用参数化查询防止 SQL 注入，SQLAlchemy 会处理参数绑定。
 
         Args:
             sql_template: SQL 模板（使用 :param 占位符）
             params: 参数字典
 
         Returns:
-            渲染后的 SQL
+            元组 (sql_template, bound_params) - SQL 模板和绑定参数
         """
-        sql = sql_template
-
-        # 替换 :param 形式的参数
+        # 直接返回模板和参数，让 SQLAlchemy 处理绑定
+        # 不进行任何字符串拼接，防止 SQL 注入
+        bound_params = {}
         for key, value in params.items():
-            if value is None:
-                sql = sql.replace(f":{key}", "NULL")
-            elif isinstance(value, str):
-                # 转义单引号
-                escaped = value.replace("'", "''")
-                sql = sql.replace(f":{key}", f"'{escaped}'")
-            elif isinstance(value, int):
-                sql = sql.replace(f":{key}", str(value))
-            else:
-                sql = sql.replace(f":{key}", str(value))
+            bound_params[key] = value
 
-        return sql
+        return sql_template, bound_params
 
     def _generate_preview_sql(self, sql: str, affects_rows: str) -> Optional[str]:
         """
@@ -404,20 +442,25 @@ class OperationExecutor:
         Returns:
             预览 SQL
         """
-        sql_upper = sql.upper().strip()
+        if not sql or not isinstance(sql, str):
+            return None
+
+        sql = sql.strip()
+        if not sql:
+            return None
+
+        sql_upper = sql.upper()
 
         # UPDATE: 生成 SELECT 查看受影响的行
         if sql_upper.startswith("UPDATE"):
-            # 提取表名和 WHERE 条件
-            match = re.search(r"UPDATE\s+(\S+)\s+SET\s+(.+?)\s+WHERE\s+(.+)", sql, re.IGNORECASE | re.DOTALL)
-            if match:
-                table = match.group(1)
-                where_clause = match.group(3)
+            table = self._extract_update_table(sql)
+            where_clause = self._extract_where_clause(sql)
+            if table and where_clause:
                 return f"SELECT * FROM {table} WHERE {where_clause}"
 
         # DELETE: 生成 SELECT 查看要删除的行
         elif sql_upper.startswith("DELETE"):
-            match = re.search(r"DELETE\s+FROM\s+(\S+)\s+WHERE\s+(.+)", sql, re.IGNORECASE)
+            match = re.search(r"DELETE\s+FROM\s+(\S+)\s+WHERE\s+(.+)", sql, re.IGNORECASE | re.DOTALL)
             if match:
                 table = match.group(1)
                 where_clause = match.group(2)
@@ -428,6 +471,116 @@ class OperationExecutor:
             return None
 
         return None
+
+    def _extract_update_table(self, sql: str) -> Optional[str]:
+        """
+        从 UPDATE 语句中提取表名
+
+        Args:
+            sql: UPDATE SQL 语句
+
+        Returns:
+            表名
+        """
+        match = re.search(r"UPDATE\s+(\S+)", sql, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        return None
+
+    def _extract_where_clause(self, sql: str) -> Optional[str]:
+        """
+        从 UPDATE 语句中提取 WHERE 子句（正确处理括号匹配）
+
+        关键是要找到 SET 子句结束后的 WHERE，而不是子查询中的 WHERE
+
+        Args:
+            sql: UPDATE SQL 语句
+
+        Returns:
+            WHERE 子句（不包含 WHERE 关键字）
+        """
+        sql_upper = sql.upper()
+
+        # 找到 SET 关键字的位置
+        set_match = re.search(r"\s+SET\s+", sql_upper)
+        if not set_match:
+            return None
+
+        set_end = set_match.end()
+
+        # 从 SET 之后开始，跳过所有括号和字符串，找到第一个 WHERE
+        where_pos = self._find_where_after_set(sql, set_end)
+
+        if where_pos == -1:
+            return None
+
+        # 提取 WHERE 之后的内容
+        where_content = sql[where_pos + 6:].strip()  # 跳过 "WHERE "
+        return where_content if where_content else None
+
+    def _find_where_after_set(self, sql: str, start_pos: int) -> int:
+        """
+        从指定位置开始，跳过 SET 子句中的括号和字符串，找到 WHERE 关键字
+
+        Args:
+            sql: SQL 语句
+            start_pos: 开始位置（SET 之后）
+
+        Returns:
+            WHERE 关键字的位置，如果找不到返回 -1
+        """
+        i = start_pos
+        paren_depth = 0
+        in_string = False
+        string_char = None
+
+        while i < len(sql) - 4:  # 至少需要 4 个字符来匹配 "WHERE"
+            char = sql[i]
+
+            # 处理字符串字面量
+            if char in ("'", '"') and not in_string:
+                in_string = True
+                string_char = char
+                i += 1
+                continue
+            elif char == string_char and in_string:
+                # 检查是否是转义的引号（两个连续引号）
+                if i + 1 < len(sql) and sql[i + 1] == string_char:
+                    i += 2  # 跳过转义的引号
+                    continue
+                else:
+                    in_string = False
+                    string_char = None
+                    i += 1
+                    continue
+
+            # 如果在字符串中，跳过所有字符
+            if in_string:
+                i += 1
+                continue
+
+            # 处理括号
+            if char == '(':
+                paren_depth += 1
+                i += 1
+                continue
+            elif char == ')':
+                paren_depth -= 1
+                i += 1
+                continue
+
+            # 只有在括号平衡时（paren_depth == 0）才检查 WHERE
+            if paren_depth == 0:
+                # 检查是否是 WHERE 关键字
+                remaining = sql[i:].upper()
+                if remaining.startswith("WHERE"):
+                    # 确保 WHERE 后面是空格或结束，避免匹配 "WHEREEVER" 等
+                    if len(sql) == i + 5 or not sql[i + 5].isalnum():
+                        return i
+
+            i += 1
+
+        return -1
 
     def format_preview_output(self, result: ExecutionResult) -> str:
         """
