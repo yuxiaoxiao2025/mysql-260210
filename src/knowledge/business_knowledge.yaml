@@ -200,6 +200,25 @@ operations:
           WHERE plate = :plate
         affects_rows: single
 
+  plate_park_bindings:
+    name: 车牌场库绑定查询
+    description: 查询车牌绑定到场库的关系
+    keywords: [绑定, 场库绑定, 哪些场库, 绑定了哪些, 绑定场库, 绑定到了]
+    category: query
+    params:
+      - name: plate
+        type: string
+        description: 车牌号（可选，不填则查询所有车牌的绑定）
+        required: false
+        pattern: "^[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼][A-Z][A-Z0-9]{5,6}$"
+        example: "沪ABC1234"
+    sql: |
+      SELECT p.name AS 场库名称, pp.plate AS 车牌
+      FROM parkcloud.cloud_park p
+      LEFT JOIN parkcloud.cloud_fixed_plate_park pp ON p.id = pp.park_id
+      WHERE (:plate IS NULL OR pp.plate = :plate)
+      ORDER BY p.name
+
   # ========== 操作员管理 ==========
   operator_list:
     name: 操作员列表
