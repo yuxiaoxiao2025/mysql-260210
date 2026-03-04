@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "mcp__web-search-prime__webSearchPrime",
-      "mcp__zread__search_doc"
+      "mcp__zread__search_doc",
+      "mcp__plugin_episodic-memory_episodic-memory__search"
     ]
   }
 }
