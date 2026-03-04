@@ -44,12 +44,22 @@ operations:
           WHERE p.name = :park_name AND o.name = :operator_name
         affects_rows: single
       - name: 更新下发状态
-        description: 更新车牌在场库的下发状态
+        description: 更新场库的下发状态为未下载（state=1），通知场库有新的车牌变更
         sql: |
           UPDATE parkcloud.cloud_fixed_plate_park_down d
           JOIN parkcloud.cloud_park p ON d.park_id = p.id
           SET d.state = 1, d.editflag = NOW()
-          WHERE p.name = :park_name AND d.plate = :plate
+          WHERE p.name = :park_name
+        affects_rows: single
+      - name: 确保下发记录存在
+        description: 如果场库没有下发记录则插入（使用固定车牌表中的最小id）
+        sql: |
+          INSERT IGNORE INTO parkcloud.cloud_fixed_plate_park_down (id, park_id, state, editflag)
+          SELECT MIN(fp.id), p.id, 1, NOW()
+          FROM parkcloud.cloud_fixed_plate_park fp
+          JOIN parkcloud.cloud_park p ON fp.park_id = p.id
+          WHERE p.name = :park_name AND fp.plate = :plate
+          GROUP BY p.id
         affects_rows: single
 
   plate_query:
