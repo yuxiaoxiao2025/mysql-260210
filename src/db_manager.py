@@ -89,8 +89,10 @@ class DatabaseManager:
         mutation_sql: str,
         preview_sql: str,
         key_columns: List[str],
-        commit: bool = False
-    ) -> Dict[str, any]:
+        commit: bool = False,
+        mutation_params: Optional[Dict[str, Any]] = None,
+        preview_params: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         在事务内执行变更操作，返回 Before/After 数据和差异摘要。
 
@@ -107,6 +109,8 @@ class DatabaseManager:
             preview_sql: 用于查看变更前后状态的查询 SQL
             key_columns: 用于对齐行的主键列列表
             commit: 是否提交事务，默认 False（回滚）
+            mutation_params: 变更 SQL 的参数字典，可选
+            preview_params: 预览 SQL 的参数字典，可选
 
         Returns:
             包含以下键的字典:
@@ -119,13 +123,13 @@ class DatabaseManager:
 
         with self.engine.begin() as conn:
             # Before: 执行预览查询获取变更前的数据
-            before_df = pd.read_sql(text(preview_sql), conn)
+            before_df = pd.read_sql(text(preview_sql), conn, params=preview_params or {})
 
             # 执行变更 SQL
-            conn.execute(text(mutation_sql))
+            conn.execute(text(mutation_sql), mutation_params or {})
 
             # After: 再次执行预览查询获取变更后的数据
-            after_df = pd.read_sql(text(preview_sql), conn)
+            after_df = pd.read_sql(text(preview_sql), conn, params=preview_params or {})
 
             # 计算差异摘要
             diff_summary = summarize_diff(before_df, after_df, key_columns)
