@@ -215,11 +215,7 @@ class DatabaseManager:
         failed_step = -1
         error_msg = None
 
-        conn = self.engine.connect()
-        try:
-            # 开始事务
-            transaction = conn.begin()
-
+        with self.engine.begin() as conn:
             try:
                 # 执行所有 SQL 步骤
                 for i, (sql, params) in enumerate(sql_steps):
@@ -230,11 +226,14 @@ class DatabaseManager:
                 steps_executed = len(sql_steps)
 
                 # 根据 commit 参数决定提交或回滚
+                # SQLAlchemy 的 context manager 会自动处理
+                # 如果 commit=False，则在退出 context 时回滚
                 if commit:
-                    transaction.commit()
+                    # 事务会在退出 context 时自动提交
                     committed = True
                 else:
-                    transaction.rollback()
+                    # 回滚事务
+                    conn.rollback()
                     committed = False
 
                 return {
@@ -249,8 +248,8 @@ class DatabaseManager:
                 error_msg = str(e)
                 failed_step = len(affected_rows)  # 失败的步骤索引
 
-                # 回滚事务
-                transaction.rollback()
+                # 回滚事务（异常时会自动回滚，但明确调用更清晰）
+                conn.rollback()
 
                 return {
                     "success": False,
@@ -260,6 +259,3 @@ class DatabaseManager:
                     "affected_rows": affected_rows,
                     "committed": False
                 }
-
-        finally:
-            conn.close()
