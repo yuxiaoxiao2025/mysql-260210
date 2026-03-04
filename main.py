@@ -1,6 +1,29 @@
 import sys
+import os
 import datetime
 import shlex
+import logging
+from logging.handlers import RotatingFileHandler
+
+# 配置日志系统
+os.makedirs('logs', exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[
+        RotatingFileHandler(
+            'logs/mysql_ai.log',
+            maxBytes=10*1024*1024,  # 10MB
+            backupCount=5,
+            encoding='utf-8'
+        ),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
 from src.db_manager import DatabaseManager
 from src.exporter import ExcelExporter
 from src.schema_loader import SchemaLoader
@@ -32,14 +55,17 @@ def print_welcome():
     print("=" * 60)
 
 def main():
+    logger.info("应用程序启动")
     try:
         print("正在连接数据库...")
         db = DatabaseManager()
         exporter = ExcelExporter()
+        logger.info("数据库连接成功")
         print("✅ 数据库连接成功！")
 
         print("正在加载业务知识库...")
         knowledge_loader = KnowledgeLoader(db_manager=db)
+        logger.info(f"知识库加载成功，共 {len(knowledge_loader.get_all_operations())} 个操作模板")
         print(f"✅ 知识库加载成功！({len(knowledge_loader.get_all_operations())} 个操作模板)")
 
         print("正在加载 AI 模块...")
@@ -50,9 +76,11 @@ def main():
         # 初始化意图识别器和操作执行器
         intent_recognizer = IntentRecognizer(llm, knowledge_loader)
         operation_executor = OperationExecutor(db, knowledge_loader)
+        logger.info("AI 模块加载成功")
         print("✅ AI 模块加载成功！")
 
     except Exception as e:
+        logger.error(f"初始化失败: {e}")
         print(f"❌ 初始化失败: {e}")
         return
 
@@ -68,6 +96,7 @@ def main():
             # ========== 内置命令处理 ==========
 
             if user_input.lower() in ('exit', 'quit'):
+                logger.info("用户退出应用程序")
                 print("👋 再见！")
                 break
 
