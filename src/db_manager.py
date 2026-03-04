@@ -2,7 +2,7 @@ from sqlalchemy import create_engine, text, inspect
 import pandas as pd
 from src.config import get_db_url
 from sqlalchemy.pool import QueuePool
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Tuple
 
 class DatabaseManager:
     def __init__(self):
@@ -151,3 +151,115 @@ class DatabaseManager:
                 "diff_summary": diff_summary,
                 "committed": committed
             }
+
+    def execute_multi_step_transaction(
+        self,
+        sql_steps: List[Tuple[str, Optional[Dict[str, Any]]]],
+        commit: bool = True
+    ) -> Dict[str, Any]:
+        """
+        执行多步骤事务 - 所有步骤在同一事务中
+
+        使用 engine.begin() 模式，确保所有步骤在同一事务内执行。
+        如果任何步骤失败，整个事务自动回滚。
+
+        常见用例：
+        - 批量数据插入
+        - 批量更新多个表
+        - "批量下发到所有场库"等批量操作场景
+
+        Args:
+            sql_steps: SQL 步骤列表，每个元素是 (sql, params) 元组
+                      - sql: SQL 语句（支持命名参数 :param_name）
+                      - params: 参数字典，可选，默认为 None
+            commit: 是否提交事务
+                   - True: 提交事务（默认）
+                   - False: 回滚事务（用于测试或预览）
+
+        Returns:
+            包含以下键的字典:
+            - success: 是否成功执行 (bool)
+            - steps_executed: 成功执行的步骤数 (int)
+            - affected_rows: 每个步骤的影响行数列表 (List[int])
+            - error: 错误信息，仅在失败时存在 (str)
+            - failed_at_step: 失败的步骤索引，仅在失败时存在 (int)
+            - committed: 事务是否已提交 (bool)
+
+        Example:
+            >>> db.execute_multi_step_transaction([
+            ...     ("INSERT INTO users (name) VALUES (:name)", {"name": "Alice"}),
+            ...     ("INSERT INTO users (name) VALUES (:name)", {"name": "Bob"}),
+            ...     ("UPDATE users SET age = 20 WHERE name = 'Alice'", None)
+            ... ], commit=True)
+            {
+                'success': True,
+                'steps_executed': 3,
+                'affected_rows': [1, 1, 1],
+                'committed': True
+            }
+
+            >>> db.execute_multi_step_transaction([
+            ...     ("INSERT INTO valid_table (name) VALUES ('test')", None),
+            ...     ("INVALID SQL", None)  # 这会触发回滚
+            ... ], commit=True)
+            {
+                'success': False,
+                'error': '...',
+                'failed_at_step': 1,
+                'steps_executed': 1,
+                'affected_rows': [1],
+                'committed': False
+            }
+        """
+        affected_rows = []
+        failed_step = -1
+        error_msg = None
+
+        conn = self.engine.connect()
+        try:
+            # 开始事务
+            transaction = conn.begin()
+
+            try:
+                # 执行所有 SQL 步骤
+                for i, (sql, params) in enumerate(sql_steps):
+                    result = conn.execute(text(sql), params or {})
+                    affected_rows.append(result.rowcount)
+
+                # 所有步骤执行成功
+                steps_executed = len(sql_steps)
+
+                # 根据 commit 参数决定提交或回滚
+                if commit:
+                    transaction.commit()
+                    committed = True
+                else:
+                    transaction.rollback()
+                    committed = False
+
+                return {
+                    "success": True,
+                    "steps_executed": steps_executed,
+                    "affected_rows": affected_rows,
+                    "committed": committed
+                }
+
+            except Exception as e:
+                # 记录失败信息
+                error_msg = str(e)
+                failed_step = len(affected_rows)  # 失败的步骤索引
+
+                # 回滚事务
+                transaction.rollback()
+
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "failed_at_step": failed_step,
+                    "steps_executed": len(affected_rows),
+                    "affected_rows": affected_rows,
+                    "committed": False
+                }
+
+        finally:
+            conn.close()

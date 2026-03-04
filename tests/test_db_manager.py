@@ -440,3 +440,317 @@ class TestExecuteInTransaction:
         # 验证操作成功
         assert result['before'].iloc[0]['age'] == 22
         assert result['after'].iloc[0]['age'] == 23
+
+
+@pytest.fixture
+def db_manager_with_multi_step_test_table(db_manager):
+    """创建带多步骤事务测试表的 DatabaseManager，并在测试后清理"""
+    # 创建测试表
+    db_manager.execute_update("""
+        CREATE TABLE IF NOT EXISTS test_multi_step (
+            id INT PRIMARY KEY AUTO_INCREMENT,
+            name VARCHAR(100) NOT NULL,
+            value INT,
+            category VARCHAR(50)
+        )
+    """)
+    # 清空表
+    db_manager.execute_update("DELETE FROM test_multi_step")
+
+    yield db_manager
+
+    # 清理：删除测试表
+    try:
+        db_manager.execute_update("DROP TABLE IF EXISTS test_multi_step")
+    except Exception:
+        pass  # 忽略清理错误
+
+
+class TestExecuteMultiStepTransaction:
+    """execute_multi_step_transaction 方法的测试类"""
+
+    def test_execute_multi_step_transaction_success(self, db_manager_with_multi_step_test_table):
+        """测试成功执行多步骤事务"""
+        sql_steps = [
+            ("INSERT INTO test_multi_step (name, value, category) VALUES (:name, :value, :category)",
+             {"name": "Alice", "value": 100, "category": "A"}),
+            ("INSERT INTO test_multi_step (name, value, category) VALUES (:name, :value, :category)",
+             {"name": "Bob", "value": 200, "category": "B"}),
+            ("UPDATE test_multi_step SET value = value + 50 WHERE category = 'A'", None),
+        ]
+
+        result = db_manager_with_multi_step_test_table.execute_multi_step_transaction(
+            sql_steps=sql_steps,
+            commit=True
+        )
+
+        # 验证返回结果
+        assert result['success'] is True
+        assert result['steps_executed'] == 3
+        assert len(result['affected_rows']) == 3
+        assert result['affected_rows'] == [1, 1, 1]
+        assert result['committed'] is True
+
+        # 验证数据确实插入了
+        df = db_manager_with_multi_step_test_table.execute_query(
+            "SELECT * FROM test_multi_step"
+        )
+        assert len(df) == 2
+
+        # 验证 Alice 的值被更新了
+        alice_df = db_manager_with_multi_step_test_table.execute_query(
+            "SELECT * FROM test_multi_step WHERE name = 'Alice'"
+        )
+        assert len(alice_df) == 1
+        assert alice_df.iloc[0]['value'] == 150
+
+    def test_execute_multi_step_transaction_rollback_on_failure(self, db_manager_with_multi_step_test_table):
+        """测试失败时事务回滚"""
+        # 先插入一些数据
+        db_manager_with_multi_step_test_table.execute_update(
+            "INSERT INTO test_multi_step (name, value) VALUES ('Initial', 10)"
+        )
+
+        # 记录初始数据
+        df_before = db_manager_with_multi_step_test_table.execute_query(
+            "SELECT * FROM test_multi_step"
+        )
+        initial_count = len(df_before)
+
+        # 执行包含失败步骤的事务
+        sql_steps = [
+            ("INSERT INTO test_multi_step (name, value) VALUES (:name, :value)",
+             {"name": "Step1", "value": 20}),
+            ("INSERT INTO test_multi_step (name, value) VALUES (:name, :value)",
+             {"name": "Step2", "value": 30}),
+            ("INVALID SQL STATEMENT HERE", None),  # 这会失败
+            ("INSERT INTO test_multi_step (name, value) VALUES (:name, :value)",
+             {"name": "Step4", "value": 40}),
+        ]
+
+        result = db_manager_with_multi_step_test_table.execute_multi_step_transaction(
+            sql_steps=sql_steps,
+            commit=True
+        )
+
+        # 验证返回结果
+        assert result['success'] is False
+        assert result['failed_at_step'] == 2  # 第 2 个步骤失败（0-based）
+        assert result['steps_executed'] == 2  # 前 2 个步骤执行成功
+        assert len(result['affected_rows']) == 2
+        assert result['committed'] is False
+        assert 'error' in result
+
+        # 验证事务已回滚 - 新数据未插入
+        df_after = db_manager_with_multi_step_test_table.execute_query(
+            "SELECT * FROM test_multi_step"
+        )
+        assert len(df_after) == initial_count
+
+        # 验证失败的数据不存在
+        step1_df = db_manager_with_multi_step_test_table.execute_query(
+            "SELECT * FROM test_multi_step WHERE name = 'Step1'"
+        )
+        step2_df = db_manager_with_multi_step_test_table.execute_query(
+            "SELECT * FROM test_multi_step WHERE name = 'Step2'"
+        )
+        assert len(step1_df) == 0
+        assert len(step2_df) == 0
+
+    def test_execute_multi_step_transaction_commit_false(self, db_manager_with_multi_step_test_table):
+        """测试 commit=False 的情况（回滚）"""
+        # 先插入一些数据
+        db_manager_with_multi_step_test_table.execute_update(
+            "INSERT INTO test_multi_step (name, value) VALUES ('Original', 50)"
+        )
+
+        # 记录初始数据
+        df_before = db_manager_with_multi_step_test_table.execute_query(
+            "SELECT * FROM test_multi_step"
+        )
+        initial_count = len(df_before)
+
+        # 执行事务但不提交
+        sql_steps = [
+            ("INSERT INTO test_multi_step (name, value) VALUES (:name, :value)",
+             {"name": "New1", "value": 100}),
+            ("INSERT INTO test_multi_step (name, value) VALUES (:name, :value)",
+             {"name": "New2", "value": 200}),
+        ]
+
+        result = db_manager_with_multi_step_test_table.execute_multi_step_transaction(
+            sql_steps=sql_steps,
+            commit=False
+        )
+
+        # 验证返回结果
+        assert result['success'] is True
+        assert result['steps_executed'] == 2
+        assert result['committed'] is False
+
+        # 验证事务已回滚 - 新数据未持久化
+        df_after = db_manager_with_multi_step_test_table.execute_query(
+            "SELECT * FROM test_multi_step"
+        )
+        assert len(df_after) == initial_count
+
+        # 验证新数据不存在
+        new1_df = db_manager_with_multi_step_test_table.execute_query(
+            "SELECT * FROM test_multi_step WHERE name = 'New1'"
+        )
+        new2_df = db_manager_with_multi_step_test_table.execute_query(
+            "SELECT * FROM test_multi_step WHERE name = 'New2'"
+        )
+        assert len(new1_df) == 0
+        assert len(new2_df) == 0
+
+    def test_execute_multi_step_transaction_empty_steps(self, db_manager_with_multi_step_test_table):
+        """测试空步骤列表"""
+        result = db_manager_with_multi_step_test_table.execute_multi_step_transaction(
+            sql_steps=[],
+            commit=True
+        )
+
+        # 验证返回结果
+        assert result['success'] is True
+        assert result['steps_executed'] == 0
+        assert result['affected_rows'] == []
+        assert result['committed'] is True
+
+    def test_execute_multi_step_transaction_mixed_operations(self, db_manager_with_multi_step_test_table):
+        """测试混合操作（INSERT, UPDATE, DELETE）"""
+        # 先插入一些数据
+        db_manager_with_multi_step_test_table.execute_update(
+            "INSERT INTO test_multi_step (name, value) VALUES ('ToDelete', 999)"
+        )
+
+        # 执行混合操作
+        sql_steps = [
+            ("INSERT INTO test_multi_step (name, value) VALUES (:name, :value)",
+             {"name": "NewRecord", "value": 100}),
+            ("UPDATE test_multi_step SET value = 50 WHERE name = 'NewRecord'", None),
+            ("DELETE FROM test_multi_step WHERE name = 'ToDelete'", None),
+        ]
+
+        result = db_manager_with_multi_step_test_table.execute_multi_step_transaction(
+            sql_steps=sql_steps,
+            commit=True
+        )
+
+        # 验证返回结果
+        assert result['success'] is True
+        assert result['steps_executed'] == 3
+        assert result['affected_rows'] == [1, 1, 1]
+        assert result['committed'] is True
+
+        # 验证数据状态
+        df = db_manager_with_multi_step_test_table.execute_query(
+            "SELECT * FROM test_multi_step"
+        )
+        assert len(df) == 1
+        assert df.iloc[0]['name'] == 'NewRecord'
+        assert df.iloc[0]['value'] == 50
+
+    def test_execute_multi_step_transaction_batch_insert(self, db_manager_with_multi_step_test_table):
+        """测试批量插入（模拟"批量下发到所有场库"场景）"""
+        # 模拟批量插入多条记录
+        sql_steps = [
+            ("INSERT INTO test_multi_step (name, value, category) VALUES (:name, :value, :category)",
+             {"name": f"Site{i}", "value": i * 10, "category": "production"})
+            for i in range(1, 11)  # 插入 10 条记录
+        ]
+
+        result = db_manager_with_multi_step_test_table.execute_multi_step_transaction(
+            sql_steps=sql_steps,
+            commit=True
+        )
+
+        # 验证返回结果
+        assert result['success'] is True
+        assert result['steps_executed'] == 10
+        assert result['affected_rows'] == [1] * 10  # 每条记录影响 1 行
+        assert result['committed'] is True
+
+        # 验证所有数据都已插入
+        df = db_manager_with_multi_step_test_table.execute_query(
+            "SELECT * FROM test_multi_step WHERE category = 'production'"
+        )
+        assert len(df) == 10
+
+    def test_execute_multi_step_transaction_parameterized_queries(self, db_manager_with_multi_step_test_table):
+        """测试参数化查询（防止 SQL 注入）"""
+        # 使用参数化查询
+        malicious_name = "'); DROP TABLE test_multi_step; --"
+
+        sql_steps = [
+            ("INSERT INTO test_multi_step (name, value) VALUES (:name, :value)",
+             {"name": malicious_name, "value": 100}),
+            ("UPDATE test_multi_step SET value = :value WHERE name = :name",
+             {"value": 200, "name": malicious_name}),
+        ]
+
+        result = db_manager_with_multi_step_test_table.execute_multi_step_transaction(
+            sql_steps=sql_steps,
+            commit=True
+        )
+
+        # 验证执行成功
+        assert result['success'] is True
+        assert result['steps_executed'] == 2
+
+        # 验证表仍然存在（未被恶意 SQL 删除）
+        tables = db_manager_with_multi_step_test_table.get_all_tables()
+        assert 'test_multi_step' in tables
+
+        # 验证恶意字符串被原样处理
+        df = db_manager_with_multi_step_test_table.execute_query(
+            "SELECT * FROM test_multi_step WHERE name = :name",
+            params={"name": malicious_name}
+        )
+        assert len(df) == 1
+        assert df.iloc[0]['name'] == malicious_name
+        assert df.iloc[0]['value'] == 200
+
+    def test_execute_multi_step_transaction_early_failure(self, db_manager_with_multi_step_test_table):
+        """测试第一步就失败的情况"""
+        sql_steps = [
+            ("INVALID SQL HERE", None),  # 第一步就失败
+            ("INSERT INTO test_multi_step (name, value) VALUES ('ShouldNotInsert', 1)", None),
+        ]
+
+        result = db_manager_with_multi_step_test_table.execute_multi_step_transaction(
+            sql_steps=sql_steps,
+            commit=True
+        )
+
+        # 验证返回结果
+        assert result['success'] is False
+        assert result['failed_at_step'] == 0
+        assert result['steps_executed'] == 0
+        assert result['affected_rows'] == []
+
+    def test_execute_multi_step_transaction_multiple_row_operations(self, db_manager_with_multi_step_test_table):
+        """测试影响多行的操作"""
+        # 先插入多条数据
+        for i in range(5):
+            db_manager_with_multi_step_test_table.execute_update(
+                "INSERT INTO test_multi_step (name, value) VALUES (:name, :value)",
+                {"name": f"User{i}", "value": i * 10}
+            )
+
+        # 执行影响多行的操作
+        sql_steps = [
+            ("UPDATE test_multi_step SET value = value + 100 WHERE name LIKE 'User%'", None),
+            ("DELETE FROM test_multi_step WHERE value > 100", None),
+        ]
+
+        result = db_manager_with_multi_step_test_table.execute_multi_step_transaction(
+            sql_steps=sql_steps,
+            commit=True
+        )
+
+        # 验证返回结果
+        assert result['success'] is True
+        assert result['steps_executed'] == 2
+        assert result['affected_rows'][0] == 5  # UPDATE 影响了 5 行
+        assert result['affected_rows'][1] == 4  # DELETE 影响了 4 行（value=0 的未被删除）
