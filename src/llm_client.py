@@ -3,7 +3,11 @@ import json
 import logging
 import dashscope
 from dashscope import Generation
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.metadata.retrieval_agent import RetrievalAgent
+    from src.metadata.retrieval_models import TableRetrievalResult
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +18,7 @@ class LLMClient:
         self.last_result = None  # Store last result for transaction preview
         self.conversation_history = []  # Store conversation history (max 5 rounds)
         self.max_history_rounds = 5  # Maximum number of conversation rounds to keep
+        self.retrieval_agent: Optional["RetrievalAgent"] = None  # Lazy load
         if not self.api_key:
             logger.warning("DASHSCOPE_API_KEY not found in environment variables.")
             print("⚠️  Warning: DASHSCOPE_API_KEY not found in environment variables.")
@@ -49,11 +54,29 @@ class LLMClient:
         error_text = ""
         if error_context:
             error_text = f"\n### Error from Previous Attempt\n{error_context}\n"
-        
+
+        # Optional: Enhance schema with retrieval
+        agent = self._get_retrieval_agent()
+        retrieval_context = ""
+        if agent and agent.graph:  # Graph exists (indexing done)
+            try:
+                from src.metadata.retrieval_models import RetrievalRequest, RetrievalLevel
+                result = agent.search(RetrievalRequest(
+                    query=user_query,
+                    level=RetrievalLevel.TABLE,
+                    top_k=5
+                ))
+                # Add retrieved tables to schema_context
+                retrieval_context = "\n" + self._build_retrieval_context(result)
+                logger.debug(f"Enhanced schema with {len(result.matches)} retrieved tables")
+            except Exception as e:
+                logger.warning(f"Retrieval enhancement failed: {e}")
+                # Retrieval is optional enhancement, continue without it
+
         prompt = f"""You are a MySQL expert. Your task is to translate the user's natural language query into an executable SQL statement.
 
 ### Schema Information
-{schema_context}
+{schema_context}{retrieval_context}
 {history_context}
 {error_text}
 ### Instructions
@@ -169,6 +192,40 @@ JSON Object:
         Clear conversation history.
         """
         self.conversation_history = []
+
+    def _get_retrieval_agent(self) -> Optional["RetrievalAgent"]:
+        """
+        Lazy load retrieval agent for schema enhancement.
+
+        Returns:
+            RetrievalAgent instance if available, None otherwise.
+        """
+        if self.retrieval_agent is None:
+            try:
+                from src.metadata.retrieval_agent import RetrievalAgent
+                self.retrieval_agent = RetrievalAgent(env="dev")
+                logger.debug("RetrievalAgent lazy loaded successfully")
+            except Exception as e:
+                logger.warning(f"Failed to load RetrievalAgent: {e}")
+                self.retrieval_agent = None
+        return self.retrieval_agent
+
+    def _build_retrieval_context(self, result: "TableRetrievalResult") -> str:
+        """
+        Build schema context from retrieval results.
+
+        Args:
+            result: TableRetrievalResult from semantic search.
+
+        Returns:
+            Formatted string with retrieved table information.
+        """
+        lines = ["### Related Tables (Retrieved by Semantic Search)"]
+        for match in result.matches[:3]:  # Top 3 matches
+            lines.append(
+                f"- {match.table_name}: {match.description} (score: {match.similarity_score:.2f})"
+            )
+        return "\n".join(lines)
 
     def recognize_intent(self, user_query: str, operations_context: str,
                          enum_values: Optional[Dict[str, list]] = None) -> Dict[str, Any]:

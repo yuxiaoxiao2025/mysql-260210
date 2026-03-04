@@ -11,3 +11,4 @@ sqlglot
 fastapi
 uvicorn
 httpx
+tenacity
