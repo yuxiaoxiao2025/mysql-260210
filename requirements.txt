@@ -6,6 +6,7 @@ python-dotenv
 openpyxl
 dashscope
 pytest
+sqlglot
 
 fastapi
 uvicorn

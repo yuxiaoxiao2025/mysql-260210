@@ -8,6 +8,7 @@ import logging
 import re
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -435,6 +436,9 @@ class OperationExecutor:
         """
         生成预览 SQL
 
+        使用 sqlglot 解析器正确处理子查询等复杂 SQL 结构。
+        如果解析失败，则回退到基于正则表达式的方案。
+
         Args:
             sql: 原始 SQL
             affects_rows: 影响行类型
@@ -449,6 +453,91 @@ class OperationExecutor:
         if not sql:
             return None
 
+        # 首先尝试使用 sqlglot 解析器
+        preview = self._parse_with_sqlglot(sql)
+        if preview:
+            return preview
+
+        # 回退到正则表达式方案
+        logger.warning(f"SQL 解析失败，使用回退方案: {sql[:50]}...")
+        return self._fallback_preview_sql(sql)
+
+    def _parse_with_sqlglot(self, sql: str) -> Optional[str]:
+        """
+        使用 sqlglot 解析器生成预览 SQL
+
+        Args:
+            sql: 原始 SQL
+
+        Returns:
+            预览 SQL，如果解析失败返回 None
+        """
+        try:
+            import sqlglot
+
+            # 使用 MySQL 方言解析
+            parsed = sqlglot.parse_one(sql, dialect='mysql')
+
+            # 检查语句类型
+            sql_type = parsed.args.get('type')
+            if sql_type is None:
+                # sqlglot 可能使用不同的键名，尝试获取语句类型
+                if parsed.key.upper() == 'UPDATE':
+                    sql_type = 'UPDATE'
+                elif parsed.key.upper() == 'DELETE':
+                    sql_type = 'DELETE'
+                else:
+                    return None
+
+            # 处理 UPDATE 语句
+            if str(sql_type).upper() == 'UPDATE':
+                # 获取表名
+                table = parsed.args.get('this')
+                if not table:
+                    return None
+
+                # 获取 WHERE 子句
+                where = parsed.args.get('where')
+                if where:
+                    # sqlglot 的 WHERE 表达式在生成 SQL 时会包含 WHERE 关键字
+                    # 我们需要获取 WHERE 表达式内部的条件（不包含 WHERE 关键字）
+                    where_sql = where.this.sql(dialect='mysql')
+                    return f"SELECT * FROM {table.sql(dialect='mysql')} WHERE {where_sql}"
+
+            # 处理 DELETE 语句
+            elif str(sql_type).upper() == 'DELETE':
+                # DELETE 语句的表名在 'this' 参数中
+                table = parsed.args.get('this')
+                where = parsed.args.get('where')
+
+                if table and where:
+                    table_sql = table.sql(dialect='mysql')
+                    # sqlglot 的 WHERE 表达式在生成 SQL 时会包含 WHERE 关键字
+                    # 我们需要获取 WHERE 表达式内部的条件（不包含 WHERE 关键字）
+                    where_sql = where.this.sql(dialect='mysql')
+                    return f"SELECT * FROM {table_sql} WHERE {where_sql}"
+
+            return None
+
+        except ImportError:
+            logger.warning("sqlglot 未安装，使用回退方案")
+            return None
+        except Exception as e:
+            logger.warning(f"SQL 解析失败: {e}")
+            return None
+
+    def _fallback_preview_sql(self, sql: str) -> Optional[str]:
+        """
+        回退方案：使用改进的正则表达式生成预览 SQL
+
+        此方案更健壮地处理括号匹配，但不如 sqlglot 可靠。
+
+        Args:
+            sql: 原始 SQL
+
+        Returns:
+            预览 SQL
+        """
         sql_upper = sql.upper()
 
         # UPDATE: 生成 SELECT 查看受影响的行
