@@ -33,6 +33,7 @@ from src.preview_renderer import should_render_html
 from src.knowledge import KnowledgeLoader
 from src.intent import IntentRecognizer
 from src.executor import OperationExecutor
+from src.monitoring import MetricsCollector, AlertManager, setup_structured_logging, LogNotifier
 
 def print_welcome():
     print("=" * 60)
@@ -78,6 +79,22 @@ def main():
         operation_executor = OperationExecutor(db, knowledge_loader)
         logger.info("AI 模块加载成功")
         print("✅ AI 模块加载成功！")
+
+        # 初始化监控和告警系统
+        print("正在初始化监控系统...")
+        metrics_collector = MetricsCollector(window_size=300)  # 5 分钟窗口
+        operation_logger = setup_structured_logging("operation")
+
+        # 创建告警管理器（使用日志通知器）
+        alert_manager = AlertManager(
+            metrics_collector=metrics_collector,
+            error_rate_threshold=0.1,  # 10% 错误率
+            avg_duration_threshold=5.0,  # 5 秒执行时间
+            cooldown_period=60,  # 60 秒冷却期
+            notifiers=[LogNotifier(operation_logger=operation_logger)]
+        )
+        logger.info("监控系统初始化成功")
+        print("✅ 监控系统初始化成功！")
 
     except Exception as e:
         logger.error(f"初始化失败: {e}")
@@ -203,10 +220,21 @@ def main():
 
                     # 预览操作
                     print("\n📊 正在生成预览...")
+                    start_time = datetime.datetime.now()
                     exec_result = operation_executor.execute_operation(
                         operation_id=intent_result.operation_id,
                         params=intent_result.params,
                         preview_only=True
+                    )
+                    duration = (datetime.datetime.now() - start_time).total_seconds()
+
+                    # 记录操作指标
+                    metrics_collector.record_operation(
+                        operation_type="query" if intent_result.operation_id.startswith("query_") else "mutation",
+                        success=exec_result.success,
+                        duration=duration,
+                        operation_id=intent_result.operation_id,
+                        error=exec_result.error if not exec_result.success else None
                     )
 
                     if not exec_result.success:
@@ -226,11 +254,22 @@ def main():
 
                         # 执行操作
                         print("⏳ 正在执行...")
+                        start_time = datetime.datetime.now()
                         exec_result = operation_executor.execute_operation(
                             operation_id=intent_result.operation_id,
                             params=intent_result.params,
                             preview_only=False,
                             auto_commit=True
+                        )
+                        duration = (datetime.datetime.now() - start_time).total_seconds()
+
+                        # 记录操作指标
+                        metrics_collector.record_operation(
+                            operation_type="mutation",
+                            success=exec_result.success,
+                            duration=duration,
+                            operation_id=intent_result.operation_id,
+                            error=exec_result.error if not exec_result.success else None
                         )
 
                         if exec_result.success:
@@ -309,6 +348,21 @@ def main():
                 duration = (datetime.datetime.now() - start_time).total_seconds()
                 print(f"✅ 查询成功！耗时 {duration:.2f}秒，共 {len(df)} 行数据。")
 
+                # 记录操作指标
+                metrics_collector.record_operation(
+                    operation_type="query",
+                    success=True,
+                    duration=duration,
+                    operation_id="sql_query"
+                )
+
+                # 定期检查告警（每 10 次操作检查一次）
+                stats = metrics_collector.get_stats()
+                if stats["total_operations"] % 10 == 0:
+                    alerts = alert_manager.check_and_alert()
+                    if alerts:
+                        print(f"⚠️  检测到 {len(alerts)} 条告警，请查看日志详情")
+
                 if not df.empty:
                     if not base_filename:
                         filename_part = "query_result"
@@ -335,6 +389,16 @@ def main():
                 print(f"❌ 查询执行失败: {e}")
                 if not is_sql:
                     llm.add_error_to_history(user_input, str(e))
+
+                # 记录失败的操作指标
+                duration = (datetime.datetime.now() - start_time).total_seconds()
+                metrics_collector.record_operation(
+                    operation_type="query",
+                    success=False,
+                    duration=duration,
+                    operation_id="sql_query",
+                    error=str(e)
+                )
 
         except KeyboardInterrupt:
             print("\n👋 再见！")
