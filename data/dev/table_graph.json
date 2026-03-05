@@ -1,0 +1,1332 @@
+{
+  "version": "1.0",
+  "created_at": "2026-03-05T10:58:24.102374",
+  "updated_at": "2026-03-05T10:58:36.827428",
+  "tables": [
+    {
+      "table_name": "aipark_config",
+      "database_name": "cloudinterface",
+      "comment": "",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "int(11)",
+          "comment": "",
+          "is_primary_key": true,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkNumber",
+          "data_type": "varchar(255)",
+          "comment": "场库编号",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkName",
+          "data_type": "varchar(255)",
+          "comment": "场库名称",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkCode",
+          "data_type": "varchar(255)",
+          "comment": "爱泊车分配场库code",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "appId",
+          "data_type": "varchar(255)",
+          "comment": "爱泊车分配appid",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "secret",
+          "data_type": "varchar(255)",
+          "comment": "爱泊车分配secret",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "version",
+          "data_type": "varchar(255)",
+          "comment": "爱泊车接口版本号",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "aiParkUrl",
+          "data_type": "varchar(255)",
+          "comment": "爱泊车服务器地址",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        }
+      ],
+      "foreign_keys": [],
+      "business_domain": "停车",
+      "schema_text": "表名：aipark_config。描述：无。关键字段：id(主键)。业务域：停车",
+      "tags": [
+        "停车",
+        "有主键"
+      ]
+    },
+    {
+      "table_name": "config",
+      "database_name": "cloudinterface",
+      "comment": "新版云云接口V2.0.0版本程序url配置表",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "int(10) unsigned",
+          "comment": "",
+          "is_primary_key": true,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkNumber",
+          "data_type": "varchar(20)",
+          "comment": "停车场编号",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkName",
+          "data_type": "varchar(20)",
+          "comment": "停车场名称",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "heartBeatUrl",
+          "data_type": "varchar(225)",
+          "comment": "心跳接口url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "inRecUrl",
+          "data_type": "varchar(150)",
+          "comment": "进场记录url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "outRecUrl",
+          "data_type": "varchar(150)",
+          "comment": "出场纪录url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "outChargeRecUrl",
+          "data_type": "varchar(150)",
+          "comment": "出场前云算费url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "inOutImgUrl",
+          "data_type": "varchar(150)",
+          "comment": "进出图片上传url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "payRecUrl",
+          "data_type": "varchar(150)",
+          "comment": "收费信息上传url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "askPayOrCodeUrl",
+          "data_type": "varchar(150)",
+          "comment": "请求代扣或请求二维码url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "askPayOrCodeResUrl",
+          "data_type": "varchar(150)",
+          "comment": "请求二维码后轮询接口",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkInfoUrl",
+          "data_type": "varchar(150)",
+          "comment": "通道信息上传url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "microScanPayUrl",
+          "data_type": "varchar(150)",
+          "comment": "第三方当面付url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "tradeQueryUrl",
+          "data_type": "varchar(150)",
+          "comment": "当面付轮询url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "tradeCancelUrl",
+          "data_type": "varchar(150)",
+          "comment": "当面付取消url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "cloudPassWayPayUrl",
+          "data_type": "varchar(150)",
+          "comment": "第三方通道付",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "openGateUrl",
+          "data_type": "varchar(150)",
+          "comment": "第三方控制开闸",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "spaceFeeUrl",
+          "data_type": "varchar(150)",
+          "comment": "固定车续费记录上传url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "fixedListUpUrl",
+          "data_type": "varchar(150)",
+          "comment": "白名单同步第三方url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "advancedFixPayRecInfoUrl",
+          "data_type": "varchar(255)",
+          "comment": "固定车线上续费支付订单上传",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "shopBalanceRecInfoUrl",
+          "data_type": "varchar(255)",
+          "comment": "商家帐户充值记录上传",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "shopCouponRecInfoUrl",
+          "data_type": "varchar(255)",
+          "comment": "优惠券购买记录上传",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkingspacestatusUrl",
+          "data_type": "varchar(255)",
+          "comment": "车位状态更新",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "devicewarningUrl",
+          "data_type": "varchar(255)",
+          "comment": "设备告警上报",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "uploadOnDutyUrl",
+          "data_type": "varchar(255)",
+          "comment": "值班记录上传",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "getSpaceStatusUpUrl",
+          "data_type": "varchar(255)",
+          "comment": "车位状态上传",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "operatorManageInfoUrl",
+          "data_type": "varchar(255)",
+          "comment": "岗亭收费员管理信息",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "operatorLogInOutUrl",
+          "data_type": "varchar(255)",
+          "comment": "岗亭收费员登录登出信息",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "key",
+          "data_type": "varchar(50)",
+          "comment": "每个停车场分配的key",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "bc_url",
+          "data_type": "varchar(150)",
+          "comment": "这个是目前这个对接对应的蓝卡云是哪个",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "editflag",
+          "data_type": "datetime",
+          "comment": "当期时间",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "upPassingRecordUrl",
+          "data_type": "varchar(255)",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "realm",
+          "data_type": "varchar(255)",
+          "comment": "蓝卡云平台地址",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "passageCarInfoUrl",
+          "data_type": "varchar(255)",
+          "comment": "岗亭过车详情上传",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "deviceOpenInfoUrl",
+          "data_type": "varchar(255)",
+          "comment": "设备开闸详情上传",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        }
+      ],
+      "foreign_keys": [],
+      "business_domain": "其他",
+      "schema_text": "表名：config。描述：新版云云接口V2.0.0版本程序url配置表。关键字段：id(主键)。业务域：其他",
+      "tags": [
+        "有主键",
+        "状态相关"
+      ]
+    },
+    {
+      "table_name": "config_copy1",
+      "database_name": "cloudinterface",
+      "comment": "新版云云接口V2.0.0版本程序url配置表",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "int(10) unsigned",
+          "comment": "",
+          "is_primary_key": true,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkNumber",
+          "data_type": "varchar(20)",
+          "comment": "停车场编号",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkName",
+          "data_type": "varchar(20)",
+          "comment": "停车场名称",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "heartBeatUrl",
+          "data_type": "varchar(225)",
+          "comment": "心跳接口url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "inRecUrl",
+          "data_type": "varchar(150)",
+          "comment": "进场记录url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "outRecUrl",
+          "data_type": "varchar(150)",
+          "comment": "出场纪录url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "outChargeRecUrl",
+          "data_type": "varchar(150)",
+          "comment": "出场前云算费url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "inOutImgUrl",
+          "data_type": "varchar(150)",
+          "comment": "进出图片上传url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "payRecUrl",
+          "data_type": "varchar(150)",
+          "comment": "收费信息上传url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "askPayOrCodeUrl",
+          "data_type": "varchar(150)",
+          "comment": "请求代扣或请求二维码url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "askPayOrCodeResUrl",
+          "data_type": "varchar(150)",
+          "comment": "请求二维码后轮询接口",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkInfoUrl",
+          "data_type": "varchar(150)",
+          "comment": "通道信息上传url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "microScanPayUrl",
+          "data_type": "varchar(150)",
+          "comment": "第三方当面付url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "tradeQueryUrl",
+          "data_type": "varchar(150)",
+          "comment": "当面付轮询url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "tradeCancelUrl",
+          "data_type": "varchar(150)",
+          "comment": "当面付取消url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "cloudPassWayPayUrl",
+          "data_type": "varchar(150)",
+          "comment": "第三方通道付",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "openGateUrl",
+          "data_type": "varchar(150)",
+          "comment": "第三方控制开闸",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "spaceFeeUrl",
+          "data_type": "varchar(150)",
+          "comment": "固定车续费记录上传url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "fixedListUpUrl",
+          "data_type": "varchar(150)",
+          "comment": "白名单同步第三方url",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "advancedFixPayRecInfoUrl",
+          "data_type": "varchar(255)",
+          "comment": "固定车线上续费支付订单上传",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "shopBalanceRecInfoUrl",
+          "data_type": "varchar(255)",
+          "comment": "商家帐户充值记录上传",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "shopCouponRecInfoUrl",
+          "data_type": "varchar(255)",
+          "comment": "优惠券购买记录上传",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkingspacestatusUrl",
+          "data_type": "varchar(255)",
+          "comment": "车位状态更新",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "devicewarningUrl",
+          "data_type": "varchar(255)",
+          "comment": "设备告警上报",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "uploadOnDutyUrl",
+          "data_type": "varchar(255)",
+          "comment": "值班记录上传",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "getSpaceStatusUpUrl",
+          "data_type": "varchar(255)",
+          "comment": "车位状态上传",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "operatorManageInfoUrl",
+          "data_type": "varchar(255)",
+          "comment": "岗亭收费员管理信息",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "operatorLogInOutUrl",
+          "data_type": "varchar(255)",
+          "comment": "岗亭收费员登录登出信息",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "key",
+          "data_type": "varchar(50)",
+          "comment": "每个停车场分配的key",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "bc_url",
+          "data_type": "varchar(150)",
+          "comment": "这个是目前这个对接对应的蓝卡云是哪个",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "editflag",
+          "data_type": "datetime",
+          "comment": "当期时间",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "upPassingRecordUrl",
+          "data_type": "varchar(255)",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "realm",
+          "data_type": "varchar(255)",
+          "comment": "蓝卡云平台地址",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "passageCarInfoUrl",
+          "data_type": "varchar(255)",
+          "comment": "岗亭过车详情上传",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "deviceOpenInfoUrl",
+          "data_type": "varchar(255)",
+          "comment": "设备开闸详情上传",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        }
+      ],
+      "foreign_keys": [],
+      "business_domain": "其他",
+      "schema_text": "表名：config_copy1。描述：新版云云接口V2.0.0版本程序url配置表。关键字段：id(主键)。业务域：其他",
+      "tags": [
+        "有主键",
+        "状态相关"
+      ]
+    },
+    {
+      "table_name": "couponinfo",
+      "database_name": "cloudinterface",
+      "comment": "新版云云接口V2.0.0版本优惠券缓存表",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "int(10) unsigned",
+          "comment": "",
+          "is_primary_key": true,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkNumber",
+          "data_type": "varchar(20)",
+          "comment": "停车场编号",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "bid",
+          "data_type": "varchar(50)",
+          "comment": "优惠序列号",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "couponCode",
+          "data_type": "varchar(50)",
+          "comment": "优惠券编码",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "couponModeId",
+          "data_type": "varchar(2)",
+          "comment": "优惠类型",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "end",
+          "data_type": "datetime",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "orderId",
+          "data_type": "varchar(20)",
+          "comment": "车辆订单号",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "plate",
+          "data_type": "varchar(20)",
+          "comment": "车牌号",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "position",
+          "data_type": "varchar(10)",
+          "comment": "面值",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "shopName",
+          "data_type": "varchar(150)",
+          "comment": "商户名称",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "editflag",
+          "data_type": "datetime",
+          "comment": "当期时间",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        }
+      ],
+      "foreign_keys": [],
+      "business_domain": "其他",
+      "schema_text": "表名：couponinfo。描述：新版云云接口V2.0.0版本优惠券缓存表。关键字段：id(主键)。业务域：其他",
+      "tags": [
+        "有主键"
+      ]
+    },
+    {
+      "table_name": "couponinfo_his",
+      "database_name": "cloudinterface",
+      "comment": "新版云云接口V2.0.0版本优惠券过期表",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "int(10) unsigned",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkNumber",
+          "data_type": "varchar(20)",
+          "comment": "停车场编号",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "bid",
+          "data_type": "varchar(50)",
+          "comment": "优惠序列号",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "couponCode",
+          "data_type": "varchar(50)",
+          "comment": "优惠券编码",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "couponModeId",
+          "data_type": "varchar(2)",
+          "comment": "优惠类型",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "end",
+          "data_type": "datetime",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "orderId",
+          "data_type": "varchar(20)",
+          "comment": "车辆订单号",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "plate",
+          "data_type": "varchar(20)",
+          "comment": "车牌号",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "position",
+          "data_type": "varchar(10)",
+          "comment": "面值",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "shopName",
+          "data_type": "varchar(150)",
+          "comment": "商户名称",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "editflag",
+          "data_type": "datetime",
+          "comment": "当期时间",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        }
+      ],
+      "foreign_keys": [],
+      "business_domain": "其他",
+      "schema_text": "表名：couponinfo_his。描述：新版云云接口V2.0.0版本优惠券过期表。关键字段：无。业务域：其他",
+      "tags": []
+    },
+    {
+      "table_name": "ningbo_config",
+      "database_name": "cloudinterface",
+      "comment": "新版云云接口V2.0.0版本宁波城管url配置表",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "int(11)",
+          "comment": "",
+          "is_primary_key": true,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkNumber",
+          "data_type": "varchar(255)",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkName",
+          "data_type": "varchar(255)",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "ningboRealm",
+          "data_type": "varchar(255)",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkpotid",
+          "data_type": "varchar(255)",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "portname",
+          "data_type": "varchar(255)",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "portpwd",
+          "data_type": "varchar(255)",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "imageServer",
+          "data_type": "varchar(255)",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "editflag",
+          "data_type": "datetime",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        }
+      ],
+      "foreign_keys": [],
+      "business_domain": "其他",
+      "schema_text": "表名：ningbo_config。描述：新版云云接口V2.0.0版本宁波城管url配置表。关键字段：id(主键)。业务域：其他",
+      "tags": [
+        "有主键"
+      ]
+    },
+    {
+      "table_name": "yc_order",
+      "database_name": "cloudinterface",
+      "comment": "",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "int(11)",
+          "comment": "",
+          "is_primary_key": true,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkNumber",
+          "data_type": "varchar(255)",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "ycOrderId",
+          "data_type": "varchar(255)",
+          "comment": "亿车订单号",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "lkOrderId",
+          "data_type": "varchar(255)",
+          "comment": "蓝卡订单号",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "editflag",
+          "data_type": "datetime",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        }
+      ],
+      "foreign_keys": [],
+      "business_domain": "订单",
+      "schema_text": "表名：yc_order。描述：无。关键字段：id(主键)。业务域：订单",
+      "tags": [
+        "订单",
+        "有主键"
+      ]
+    },
+    {
+      "table_name": "ziboyiche_config",
+      "database_name": "cloudinterface",
+      "comment": "",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "int(11)",
+          "comment": "",
+          "is_primary_key": true,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkNumber",
+          "data_type": "varchar(255)",
+          "comment": "场库编号",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkName",
+          "data_type": "varchar(255)",
+          "comment": "场库名称",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkinglotid",
+          "data_type": "varchar(255)",
+          "comment": "亿车分配场库编号",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "aiotServerUrl",
+          "data_type": "varchar(255)",
+          "comment": "aiot域名",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "imageServerUrl",
+          "data_type": "varchar(255)",
+          "comment": "亿车图片上传接口地址",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "dataServerUrl",
+          "data_type": "varchar(255)",
+          "comment": "亿车数据上行接口地址(https://bee.zjzhtc.com:8090/system/data )",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "appid",
+          "data_type": "varchar(255)",
+          "comment": "亿车appid",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "requestKey",
+          "data_type": "varchar(255)",
+          "comment": "亿车私钥",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "comid",
+          "data_type": "varchar(255)",
+          "comment": "物业 ID",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "entryid",
+          "data_type": "varchar(255)",
+          "comment": "岗亭id",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "equipmentip",
+          "data_type": "varchar(255)",
+          "comment": "岗亭ip",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "userid",
+          "data_type": "varchar(255)",
+          "comment": "操作员id",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "editflag",
+          "data_type": "datetime",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        }
+      ],
+      "foreign_keys": [],
+      "business_domain": "其他",
+      "schema_text": "表名：ziboyiche_config。描述：无。关键字段：id(主键)。业务域：其他",
+      "tags": [
+        "有主键"
+      ]
+    },
+    {
+      "table_name": "zuolin_config",
+      "database_name": "cloudinterface",
+      "comment": "新版云云接口V2.0.0版本左邻url配置表",
+      "columns": [
+        {
+          "name": "id",
+          "data_type": "int(10) unsigned",
+          "comment": "",
+          "is_primary_key": true,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkNumber",
+          "data_type": "varchar(20)",
+          "comment": "停车场编号",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "parkName",
+          "data_type": "varchar(20)",
+          "comment": "停车场名称",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "appKey",
+          "data_type": "varchar(255)",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "secret",
+          "data_type": "varchar(255)",
+          "comment": "",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        },
+        {
+          "name": "serverUrl",
+          "data_type": "varchar(255)",
+          "comment": "左邻服务器地址例如: ( http://park-test.honyproperty.com )",
+          "is_primary_key": false,
+          "is_foreign_key": false,
+          "references_table": null,
+          "references_column": null
+        }
+      ],
+      "foreign_keys": [],
+      "business_domain": "其他",
+      "schema_text": "表名：zuolin_config。描述：新版云云接口V2.0.0版本左邻url配置表。关键字段：id(主键)。业务域：其他",
+      "tags": [
+        "有主键"
+      ]
+    }
+  ]
+}

@@ -319,24 +319,22 @@ class GraphStore:
         """
         Clear all vectors from collections.
 
-        Used for rebuilding the index. Deletes and recreates both collections.
+        Used for rebuilding the index. This method clears all data from
+        the collections without deleting the collections themselves,
+        which avoids ChromaDB internal caching issues.
         """
         try:
-            # Delete and recreate table collection
-            self.client.delete_collection("table_metadata")
-            self.table_collection = self.client.get_or_create_collection(
-                name="table_metadata",
-                metadata={"hnsw:space": "cosine"}
-            )
-            logger.info("Cleared table_metadata collection")
+            # Clear table collection by deleting all documents
+            existing_ids = self.table_collection.get()["ids"]
+            if existing_ids:
+                self.table_collection.delete(ids=existing_ids)
+            logger.info(f"Cleared {len(existing_ids)} records from table_metadata collection")
 
-            # Delete and recreate field collection
-            self.client.delete_collection("field_metadata")
-            self.field_collection = self.client.get_or_create_collection(
-                name="field_metadata",
-                metadata={"hnsw:space": "cosine"}
-            )
-            logger.info("Cleared field_metadata collection")
+            # Clear field collection by deleting all documents
+            existing_ids = self.field_collection.get()["ids"]
+            if existing_ids:
+                self.field_collection.delete(ids=existing_ids)
+            logger.info(f"Cleared {len(existing_ids)} records from field_metadata collection")
 
         except Exception as e:
             logger.error(f"Failed to clear collections: {e}")
