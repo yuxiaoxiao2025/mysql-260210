@@ -2,6 +2,8 @@
 
 import json
 import pytest
+import shutil
+import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock, Mock
 from datetime import datetime
@@ -72,6 +74,7 @@ class TestSchemaIndexer:
         # Mock database query results
         mock_conn = MagicMock()
         mock_db_manager.get_connection.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.scalar.return_value = "mydb"
 
         # Mock table info query
         mock_conn.execute.return_value.fetchone.return_value = ("mydb", "User table")
@@ -99,6 +102,9 @@ class TestSchemaIndexer:
     ):
         """Test index_all_tables with empty database."""
         mock_db_manager.get_all_tables.return_value = []
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.scalar.return_value = "mydb"
+        mock_db_manager.get_connection.return_value.__enter__.return_value = mock_conn
 
         indexer = SchemaIndexer(
             db_manager=mock_db_manager,
@@ -118,6 +124,9 @@ class TestSchemaIndexer:
     ):
         """Test index_all_tables handles database error."""
         mock_db_manager.get_all_tables.side_effect = Exception("Connection failed")
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.scalar.return_value = "mydb"
+        mock_db_manager.get_connection.return_value.__enter__.return_value = mock_conn
 
         indexer = SchemaIndexer(
             db_manager=mock_db_manager,
@@ -262,30 +271,35 @@ class TestSchemaIndexer:
 
         assert "其他" not in result
 
-    def test_save_progress(self, mock_db_manager, mock_embedding_service, mock_graph_store, tmp_path):
+    def test_save_progress(self, mock_db_manager, mock_embedding_service, mock_graph_store):
         """Test _save_progress writes to file."""
-        progress_file = tmp_path / "progress.json"
+        temp_dir = Path(tempfile.mkdtemp(dir=str(Path(".pytest_tmp"))))
+        progress_file = temp_dir / "progress.json"
 
-        with patch.object(SchemaIndexer, "__init__", lambda self, **kwargs: None):
-            indexer = SchemaIndexer.__new__(SchemaIndexer)
-            indexer.progress_file = progress_file
+        try:
+            with patch.object(SchemaIndexer, "__init__", lambda self, **kwargs: None):
+                indexer = SchemaIndexer.__new__(SchemaIndexer)
+                indexer.progress_file = progress_file
 
-            progress = IndexProgress(
-                status="in_progress",
-                total_tables=10,
-                indexed_tables=5,
-            )
+                progress = IndexProgress(
+                    status="in_progress",
+                    total_tables=10,
+                    indexed_tables=5,
+                )
 
-            indexer._save_progress(progress)
+                indexer._save_progress(progress)
 
-            assert progress_file.exists()
-            with open(progress_file) as f:
-                data = json.load(f)
-            assert data["status"] == "in_progress"
+                assert progress_file.exists()
+                with open(progress_file) as f:
+                    data = json.load(f)
+                assert data["status"] == "in_progress"
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_load_progress_existing_file(self, mock_db_manager, mock_embedding_service, mock_graph_store, tmp_path):
+    def test_load_progress_existing_file(self, mock_db_manager, mock_embedding_service, mock_graph_store):
         """Test _load_progress reads from existing file."""
-        progress_file = tmp_path / "progress.json"
+        temp_dir = Path(tempfile.mkdtemp(dir=str(Path(".pytest_tmp"))))
+        progress_file = temp_dir / "progress.json"
         progress_data = {
             "status": "completed",
             "total_tables": 10,
@@ -294,43 +308,54 @@ class TestSchemaIndexer:
             "errors": [],
             "statistics": {},
         }
-        with open(progress_file, "w") as f:
-            json.dump(progress_data, f)
+        try:
+            with open(progress_file, "w") as f:
+                json.dump(progress_data, f)
 
-        with patch.object(SchemaIndexer, "__init__", lambda self, **kwargs: None):
-            indexer = SchemaIndexer.__new__(SchemaIndexer)
-            indexer.progress_file = progress_file
+            with patch.object(SchemaIndexer, "__init__", lambda self, **kwargs: None):
+                indexer = SchemaIndexer.__new__(SchemaIndexer)
+                indexer.progress_file = progress_file
 
-            result = indexer._load_progress()
+                result = indexer._load_progress()
 
-            assert result.status == "completed"
-            assert result.total_tables == 10
+                assert result.status == "completed"
+                assert result.total_tables == 10
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_load_progress_no_file(self, mock_db_manager, mock_embedding_service, mock_graph_store, tmp_path):
+    def test_load_progress_no_file(self, mock_db_manager, mock_embedding_service, mock_graph_store):
         """Test _load_progress creates new progress when no file exists."""
-        progress_file = tmp_path / "nonexistent.json"
+        temp_dir = Path(tempfile.mkdtemp(dir=str(Path(".pytest_tmp"))))
+        progress_file = temp_dir / "nonexistent.json"
 
-        with patch.object(SchemaIndexer, "__init__", lambda self, **kwargs: None):
-            indexer = SchemaIndexer.__new__(SchemaIndexer)
-            indexer.progress_file = progress_file
+        try:
+            with patch.object(SchemaIndexer, "__init__", lambda self, **kwargs: None):
+                indexer = SchemaIndexer.__new__(SchemaIndexer)
+                indexer.progress_file = progress_file
 
-            result = indexer._load_progress()
+                result = indexer._load_progress()
 
-            assert result.status == "pending"
+                assert result.status == "pending"
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_load_progress_invalid_json(self, mock_db_manager, mock_embedding_service, mock_graph_store, tmp_path):
+    def test_load_progress_invalid_json(self, mock_db_manager, mock_embedding_service, mock_graph_store):
         """Test _load_progress handles invalid JSON."""
-        progress_file = tmp_path / "invalid.json"
-        with open(progress_file, "w") as f:
-            f.write("invalid json {{{")
+        temp_dir = Path(tempfile.mkdtemp(dir=str(Path(".pytest_tmp"))))
+        progress_file = temp_dir / "invalid.json"
+        try:
+            with open(progress_file, "w") as f:
+                f.write("invalid json {{{")
 
-        with patch.object(SchemaIndexer, "__init__", lambda self, **kwargs: None):
-            indexer = SchemaIndexer.__new__(SchemaIndexer)
-            indexer.progress_file = progress_file
+            with patch.object(SchemaIndexer, "__init__", lambda self, **kwargs: None):
+                indexer = SchemaIndexer.__new__(SchemaIndexer)
+                indexer.progress_file = progress_file
 
-            result = indexer._load_progress()
+                result = indexer._load_progress()
 
-            assert result.status == "pending"
+                assert result.status == "pending"
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_get_progress(self, mock_db_manager, mock_embedding_service, mock_graph_store):
         """Test get_progress returns current progress."""
@@ -345,18 +370,22 @@ class TestSchemaIndexer:
 
         assert isinstance(result, IndexProgress)
 
-    def test_clear_progress(self, mock_db_manager, mock_embedding_service, mock_graph_store, tmp_path):
+    def test_clear_progress(self, mock_db_manager, mock_embedding_service, mock_graph_store):
         """Test clear_progress removes progress file."""
-        progress_file = tmp_path / "progress.json"
+        temp_dir = Path(tempfile.mkdtemp(dir=str(Path(".pytest_tmp"))))
+        progress_file = temp_dir / "progress.json"
         progress_file.touch()
 
-        with patch.object(SchemaIndexer, "__init__", lambda self, **kwargs: None):
-            indexer = SchemaIndexer.__new__(SchemaIndexer)
-            indexer.progress_file = progress_file
+        try:
+            with patch.object(SchemaIndexer, "__init__", lambda self, **kwargs: None):
+                indexer = SchemaIndexer.__new__(SchemaIndexer)
+                indexer.progress_file = progress_file
 
-            indexer.clear_progress()
+                indexer.clear_progress()
 
-            assert not progress_file.exists()
+                assert not progress_file.exists()
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_index_single_table_success(
         self, mock_db_manager, mock_embedding_service, mock_graph_store
@@ -364,6 +393,7 @@ class TestSchemaIndexer:
         """Test index_single_table successfully indexes one table."""
         mock_conn = MagicMock()
         mock_db_manager.get_connection.return_value.__enter__.return_value = mock_conn
+        mock_conn.execute.return_value.scalar.return_value = "mydb"
         mock_conn.execute.return_value.fetchone.return_value = ("mydb", "User table")
         mock_conn.execute.return_value.fetchall.return_value = [
             ("id", "INT", "Primary key", "PRI"),
@@ -416,7 +446,7 @@ class TestSchemaIndexer:
             env="test",
         )
 
-        result = indexer._extract_foreign_keys("orders")
+        result = indexer._extract_foreign_keys("mydb", "orders")
 
         assert len(result) == 2
         assert result[0].column_name == "user_id"
@@ -433,7 +463,7 @@ class TestSchemaIndexer:
             env="test",
         )
 
-        result = indexer._extract_foreign_keys("orders")
+        result = indexer._extract_foreign_keys("mydb", "orders")
 
         assert result == []
 
@@ -458,7 +488,7 @@ class TestSchemaIndexer:
         graph = KnowledgeGraph()
 
         with patch.object(indexer, "_extract_foreign_keys", return_value=[]):
-            result = indexer._index_batch(["users"], graph)
+            result = indexer._index_batch("mydb", ["users"], graph)
 
         assert result["success_count"] == 1
         assert "users" in result["indexed"]
@@ -479,17 +509,18 @@ class TestSchemaIndexer:
 
         graph = KnowledgeGraph()
 
-        result = indexer._index_batch(["users"], graph)
+        result = indexer._index_batch("mydb", ["users"], graph)
 
         assert result["success_count"] == 0
         assert "users" in result["failed"]
 
     def test_checkpoint_resume(
-        self, mock_db_manager, mock_embedding_service, mock_graph_store, tmp_path
+        self, mock_db_manager, mock_embedding_service, mock_graph_store
     ):
         """Test checkpoint/resume skips already indexed tables."""
         # Create progress file with indexed tables
-        progress_file = tmp_path / "progress.json"
+        temp_dir = Path(tempfile.mkdtemp(dir=str(Path(".pytest_tmp"))))
+        progress_file = temp_dir / "progress.json"
         progress_data = {
             "status": "in_progress",
             "total_tables": 3,
@@ -498,29 +529,33 @@ class TestSchemaIndexer:
             "errors": [],
             "statistics": {"indexed_tables": ["users"]},
         }
-        with open(progress_file, "w") as f:
-            json.dump(progress_data, f)
+        try:
+            with open(progress_file, "w") as f:
+                json.dump(progress_data, f)
 
-        # Override get_all_tables to return 3 tables for this test
-        mock_db_manager.get_all_tables.return_value = ["users", "orders", "products"]
+            # Override get_all_tables to return 3 tables for this test
+            mock_db_manager.get_all_tables.return_value = ["users", "orders", "products"]
 
-        mock_conn = MagicMock()
-        mock_db_manager.get_connection.return_value.__enter__.return_value = mock_conn
-        mock_conn.execute.return_value.fetchone.return_value = ("mydb", "Table")
-        mock_conn.execute.return_value.fetchall.return_value = []
+            mock_conn = MagicMock()
+            mock_db_manager.get_connection.return_value.__enter__.return_value = mock_conn
+            mock_conn.execute.return_value.scalar.return_value = "mydb"
+            mock_conn.execute.return_value.fetchone.return_value = ("mydb", "Table")
+            mock_conn.execute.return_value.fetchall.return_value = []
 
-        indexer = SchemaIndexer(
-            db_manager=mock_db_manager,
-            embedding_service=mock_embedding_service,
-            graph_store=mock_graph_store,
-            env="test",
-        )
-        indexer.progress_file = progress_file
+            indexer = SchemaIndexer(
+                db_manager=mock_db_manager,
+                embedding_service=mock_embedding_service,
+                graph_store=mock_graph_store,
+                env="test",
+            )
+            indexer.progress_file = progress_file
 
-        with patch.object(indexer, "_extract_foreign_keys", return_value=[]):
-            result = indexer.index_all_tables(batch_size=1)
+            with patch.object(indexer, "_extract_foreign_keys", return_value=[]):
+                result = indexer.index_all_tables(batch_size=1)
 
-        # Should have processed only the 2 remaining tables (orders, products)
-        # since users was already indexed
-        assert result.total_tables == 3
-        assert result.indexed_tables == 3  # 1 already done + 2 newly indexed
+            # Should have processed only the 2 remaining tables (orders, products)
+            # since users was already indexed
+            assert result.total_tables == 3
+            assert result.indexed_tables == 3  # 1 already done + 2 newly indexed
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)

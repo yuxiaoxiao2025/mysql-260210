@@ -8,7 +8,9 @@ class SchemaLoader:
         self.db_manager = db_manager if db_manager else DatabaseManager()
         self.table_descriptions = {}
         self.db_mapping = {} # table -> db_name
+        self.schema = {}
         self._load_descriptions()
+        self._load_schema()
 
     def _load_descriptions(self):
         """Parse mysql.md to get table descriptions and database mapping"""
@@ -16,33 +18,49 @@ class SchemaLoader:
             return
 
         current_db = None
-        with open(self.doc_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                
-                # Parse DB name
-                # 数据库名称：cloudinterface
-                db_match = re.match(r'数据库名称：(\w+)', line)
-                if db_match:
-                    current_db = db_match.group(1)
-                    continue
+        try:
+            with open(self.doc_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    
+                    # Parse DB name
+                    # 数据库名称：cloudinterface
+                    db_match = re.match(r'数据库名称：(\w+)', line)
+                    if db_match:
+                        current_db = db_match.group(1)
+                        continue
 
-                # Parse Table info
-                # config                  新版云云接口V2.0.0版本程序url配置表
-                # cloud_operator          登录人员表
-                # Ignore lines starting with # or empty
-                if not line or line.startswith('#') or line.startswith('-'):
-                    continue
-                
-                # Match table_name followed by description
-                # Assume table names are alphanumeric + underscore
-                table_match = re.match(r'^([a-zA-Z0-9_]+)\s+(.+)$', line)
-                if table_match:
-                    table_name = table_match.group(1)
-                    desc = table_match.group(2)
-                    self.table_descriptions[table_name] = desc
-                    if current_db:
-                        self.db_mapping[table_name] = current_db
+                    # Parse Table info
+                    # config                  新版云云接口V2.0.0版本程序url配置表
+                    # cloud_operator          登录人员表
+                    # Ignore lines starting with # or empty
+                    if not line or line.startswith('#') or line.startswith('-'):
+                        continue
+                    
+                    # Match table_name followed by description
+                    # Assume table names are alphanumeric + underscore
+                    table_match = re.match(r'^([a-zA-Z0-9_]+)\s+(.+)$', line)
+                    if table_match:
+                        table_name = table_match.group(1)
+                        desc = table_match.group(2)
+                        self.table_descriptions[table_name] = desc
+                        if current_db:
+                            self.db_mapping[table_name] = current_db
+        except OSError:
+            return
+
+    def _load_schema(self):
+        """Load table schemas from database and cache them."""
+        try:
+            tables = self.db_manager.get_all_tables()
+        except Exception:
+            return
+
+        for table in tables:
+            try:
+                self.schema[table] = self.db_manager.get_table_schema(table)
+            except Exception:
+                continue
 
     def get_schema_context(self):
         """
@@ -55,15 +73,20 @@ class SchemaLoader:
         # We will iterate over the tables we found in the doc
         # because those are the ones the user likely cares about.
         # If the doc is empty, we fallback to all tables in current DB.
-        
         tables_to_inspect = list(self.table_descriptions.keys())
-        
-        # If no tables found in doc, use current DB tables
+
+        if not tables_to_inspect:
+            tables_to_inspect = list(self.schema.keys())
+
         if not tables_to_inspect:
             try:
                 tables_to_inspect = self.db_manager.get_all_tables()
-            except:
-                pass
+            except Exception:
+                tables_to_inspect = []
+
+        if not tables_to_inspect:
+            context_lines.append("No tables found")
+            return "\n".join(context_lines)
 
         for table in tables_to_inspect:
             desc = self.table_descriptions.get(table, "")
@@ -75,8 +98,12 @@ class SchemaLoader:
             
             columns_str = "Columns: (Could not fetch)"
             try:
-                # Try to get schema with db_name if available
-                columns = self.db_manager.get_table_schema(table, schema=db_name if db_name else None)
+                columns = self.schema.get(table)
+                if columns is None:
+                    columns = self.db_manager.get_table_schema(
+                        table, schema=db_name if db_name else None
+                    )
+                    self.schema[table] = columns
                 # Format: name(type, comment)
                 col_descs = []
                 for col in columns:

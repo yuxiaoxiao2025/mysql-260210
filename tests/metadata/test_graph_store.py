@@ -20,14 +20,16 @@ class TestGraphStore:
     """Test cases for GraphStore."""
 
     @pytest.fixture
-    def temp_data_dir(self, tmp_path):
+    def temp_data_dir(self):
         """Create a temporary data directory for testing."""
-        data_dir = tmp_path / "data" / "test"
+        base_dir = Path(".pytest_tmp")
+        base_dir.mkdir(parents=True, exist_ok=True)
+        temp_root = Path(tempfile.mkdtemp(dir=str(base_dir)))
+        data_dir = temp_root / "data" / "test"
         data_dir.mkdir(parents=True, exist_ok=True)
         yield data_dir
-        # Cleanup
-        if data_dir.exists():
-            shutil.rmtree(data_dir, ignore_errors=True)
+        if temp_root.exists():
+            shutil.rmtree(temp_root, ignore_errors=True)
 
     @pytest.fixture
     def mock_chroma_client(self):
@@ -338,8 +340,10 @@ class TestGraphStore:
             assert result is None
 
     def test_clear_all(self, temp_data_dir, mock_chroma_client):
-        """Test clear_all deletes and recreates collections."""
+        """Test clear_all deletes all records from collections."""
         mock_client, mock_table, mock_field = mock_chroma_client
+        mock_table.get.return_value = {"ids": ["users"]}
+        mock_field.get.return_value = {"ids": ["users.id"]}
 
         with patch("src.metadata.graph_store.chromadb.PersistentClient") as mock_chromadb:
             mock_chromadb.return_value = mock_client
@@ -348,8 +352,8 @@ class TestGraphStore:
 
             store.clear_all()
 
-            # Should delete and recreate both collections
-            assert mock_client.delete_collection.call_count == 2
+            mock_table.delete.assert_called_once_with(ids=["users"])
+            mock_field.delete.assert_called_once_with(ids=["users.id"])
 
     def test_query_tables(self, temp_data_dir, mock_chroma_client):
         """Test query_tables returns formatted results."""
@@ -685,7 +689,7 @@ class TestGraphStore:
     def test_clear_all_exception_propagates(self, temp_data_dir, mock_chroma_client):
         """Test clear_all propagates exceptions."""
         mock_client, mock_table, mock_field = mock_chroma_client
-        mock_client.delete_collection.side_effect = RuntimeError("Delete failed")
+        mock_table.get.side_effect = RuntimeError("Delete failed")
 
         with patch("src.metadata.graph_store.chromadb.PersistentClient") as mock_chromadb:
             mock_chromadb.return_value = mock_client
