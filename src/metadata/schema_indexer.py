@@ -398,7 +398,7 @@ class SchemaIndexer:
         table_name: str,
         comment: str,
         columns: List[ColumnMetadata],
-        business_domain: str,
+        business_domain: str = "其他",
     ) -> str:
         """
         Generate natural language text for embedding.
@@ -418,6 +418,11 @@ class SchemaIndexer:
         Format:
             "表名：{table_name}。描述：{comment}。关键字段：{key_columns}。业务域：{business_domain}"
         """
+        semantic = self._enrich_table_semantics(table_name, columns)
+        semantic_description = semantic.get("semantic_description")
+        if semantic_description:
+            return semantic_description
+
         # Get key columns (primary keys and foreign keys)
         key_columns = []
         for col in columns:
@@ -436,6 +441,21 @@ class SchemaIndexer:
         ]
 
         return "。".join(parts)
+
+    def _enrich_table_semantics(
+        self, table_name: str, columns: List[ColumnMetadata]
+    ) -> Dict[str, Any]:
+        """
+        Enrich table semantics for embedding inputs.
+
+        Args:
+            table_name: Name of the table.
+            columns: Column metadata list.
+
+        Returns:
+            Dictionary containing semantic enrichment fields.
+        """
+        return {}
 
     def _generate_field_schema_text(
         self, table_name: str, column: ColumnMetadata

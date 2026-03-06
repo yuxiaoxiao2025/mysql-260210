@@ -51,6 +51,16 @@ class TestSchemaIndexer:
         classifier.classify.return_value = "用户"
         return classifier
 
+    @pytest.fixture
+    def indexer(self, mock_db_manager, mock_embedding_service, mock_graph_store):
+        """Create SchemaIndexer instance for tests."""
+        return SchemaIndexer(
+            db_manager=mock_db_manager,
+            embedding_service=mock_embedding_service,
+            graph_store=mock_graph_store,
+            env="test",
+        )
+
     def test_init_with_dependencies(
         self, mock_db_manager, mock_embedding_service, mock_graph_store
     ):
@@ -193,6 +203,28 @@ class TestSchemaIndexer:
         )
 
         assert "关键字段：无" in result
+
+    def test_schema_indexer_uses_semantic_description_for_embeddings(
+        self, monkeypatch, indexer
+    ):
+        """Test _generate_schema_text prefers semantic description."""
+        def fake_enrich(*args, **kwargs):
+            return {
+                "semantic_description": "标准语义",
+                "semantic_tags": [],
+                "source": "llm",
+                "confidence": 0.9,
+            }
+
+        monkeypatch.setattr(indexer, "_enrich_table_semantics", fake_enrich)
+
+        text = indexer._generate_schema_text(
+            table_name="t",
+            comment="原注释",
+            columns=[],
+        )
+
+        assert "标准语义" in text
 
     def test_generate_field_schema_text(self, mock_db_manager, mock_embedding_service, mock_graph_store):
         """Test _generate_field_schema_text creates correct text."""
