@@ -1,0 +1,15 @@
+{
+  "status": "completed",
+  "total_tables": 3,
+  "indexed_tables": 3,
+  "current_batch": 3,
+  "last_updated": "2026-03-05T14:58:15.978562",
+  "errors": [],
+  "statistics": {
+    "indexed_tables": [
+      "users",
+      "products",
+      "orders"
+    ]
+  }
+}

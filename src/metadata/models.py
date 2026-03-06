@@ -57,21 +57,21 @@ class TableMetadata(BaseModel):
     Attributes:
         table_name: Name of the table.
         database_name: Name of the database containing this table.
-        namespace: Namespace for multi-database isolation.
+        namespace: Namespace identifier (typically database_name).
         comment: Table description/comment from database.
         columns: List of column metadata for this table.
         foreign_keys: List of foreign key relationships from this table.
         business_domain: Business category for this table (e.g., '车辆管理', '场库管理').
         schema_text: Natural language description of the table schema.
         tags: List of tags for categorization and search.
-        is_template: Whether this table is a park template table.
-        template_for: Database names this template applies to.
-        template_source: Template database name this table was cloned from.
+        is_template: Whether this table is a template (for park databases).
+        template_for: List of databases that use this template.
+        template_source: Source database name if this is a template instance.
     """
 
     table_name: str
     database_name: str = ""
-    namespace: str = ""
+    namespace: str = ""  # 命名空间标识 (通常是 database_name)
     comment: str = ""
     columns: List[ColumnMetadata] = Field(default_factory=list)
     foreign_keys: List[ForeignKeyRelation] = Field(default_factory=list)
@@ -84,6 +84,18 @@ class TableMetadata(BaseModel):
 
     @property
     def qualified_name(self) -> str:
+        if self.database_name:
+            return f"{self.database_name}.{self.table_name}"
+        return self.table_name
+
+    # 园区库模板相关
+    is_template: bool = False  # 是否为模板表
+    template_for: List[str] = Field(default_factory=list)  # 复用此模板的库名列表
+    template_source: Optional[str] = None  # 模板来源库名（实例表用）
+
+    @property
+    def qualified_name(self) -> str:
+        """获取完全限定名: database.table"""
         if self.database_name:
             return f"{self.database_name}.{self.table_name}"
         return self.table_name
@@ -131,14 +143,21 @@ class KnowledgeGraph(BaseModel):
     understanding across all tables in the database.
 
     Attributes:
-        version: Version of the knowledge graph schema.
+        version: Version of the knowledge graph schema (upgraded to 2.0).
         created_at: ISO timestamp of when the graph was created.
         updated_at: ISO timestamp of when the graph was last updated.
         tables: List of all table metadata in the knowledge graph.
+<<<<<<< HEAD
         namespaces: Mapping of namespace to description or label.
         template_mapping: Mapping of park instances to template namespace.
         park_instances: List of park instance database names.
         database_classification: Mapping of database name to classification.
+=======
+        namespaces: Namespace index mapping {db_name: namespace_type}.
+        template_mapping: Template to instance mapping.
+        park_instances: List of park database instances.
+        database_classification: Database classification info.
+>>>>>>> feat/multi-database-namespace
     """
 
     version: str = "2.0"
@@ -149,6 +168,18 @@ class KnowledgeGraph(BaseModel):
     template_mapping: Dict[str, str] = Field(default_factory=dict)
     park_instances: List[str] = Field(default_factory=list)
     database_classification: Dict[str, str] = Field(default_factory=dict)
+
+    # 娡型升级：命名空间支持
+    namespaces: Dict[str, str] = Field(default_factory=dict)
+    # {库名: 命名空间类型} - "primary" | "secondary" | "park_template" | "park_instance"
+    template_mapping: Dict[str, str] = Field(default_factory=dict)
+    # {园区库名: 模板库名}
+    park_instances: List[str] = Field(default_factory=list)
+    # 所有园区库名列表
+    database_classification: Dict[str, str] = Field(default_factory=dict)
+    # {库名: 分类} - "primary" | "secondary" | "park_template" | "park_instance" | "excluded"
+
+
 
     def get_table(self, name: str) -> Optional[TableMetadata]:
         """
@@ -275,6 +306,66 @@ class KnowledgeGraph(BaseModel):
         """Update the updated_at timestamp to current time."""
         self.updated_at = datetime.now().isoformat()
 
+    def get_table_by_qualified_name(self, qualified_name: str) -> Optional[TableMetadata]:
+        """
+        Get table metadata by fully qualified name.
+
+        Args:
+            qualified_name: Fully qualified name in format "database.table_name".
+
+        Returns:
+            TableMetadata if found, None otherwise.
+        """
+        for table in self.tables:
+            if table.qualified_name == qualified_name:
+                return table
+        return None
+
+    def get_tables_by_namespace(self, namespace: str) -> List[TableMetadata]:
+        """
+        Get all tables in a specific namespace.
+
+        Args:
+            namespace: Namespace (database name) to filter by.
+
+        Returns:
+            List of tables in the specified namespace.
+        """
+        return [t for t in self.tables if t.namespace == namespace]
+
+    def get_template_instances(self, template_db: str) -> List[str]:
+        """
+        Get all instance databases using a specific template.
+
+        Args:
+            template_db: Template database name.
+
+        Returns:
+            List of instance database names.
+        """
+        return [k for k, v in self.template_mapping.items() if v == template_db]
+
+    def get_primary_tables(self) -> List[TableMetadata]:
+        """
+        Get all tables from primary databases.
+
+        Returns:
+            List of tables from primary namespaces.
+        """
+        return [
+            t for t in self.tables
+            if self.database_classification.get(t.database_name) == "primary"
+        ]
+
+    def get_all_namespaces(self) -> List[str]:
+        """
+        Get all unique namespace names.
+
+        Returns:
+            List of unique namespace names.
+        """
+        return sorted(list(set(t.namespace for t in self.tables if t.namespace)))
+
 
 class IndexProgress(BaseModel):
     """
@@ -384,3 +475,198 @@ class IndexResult(BaseModel):
             True if any tables failed to index, False otherwise.
         """
         return len(self.failed_tables) > 0
+
+
+# ==================== 多库命名空间模型 ====================
+
+from enum import Enum
+
+
+class DatabaseType(str, Enum):
+    """数据库类型枚举"""
+    PRIMARY = "primary"              # 主业务库 (parkcloud)
+    SECONDARY = "secondary"          # 次要业务库 (db_parking_center, cloudinterface)
+    PARK_TEMPLATE = "park_template"  # 园区库模板
+    PARK_INSTANCE = "park_instance"  # 园区库实例
+    EXCLUDED = "excluded"            # 排除的库
+
+
+class DatabaseClassification(BaseModel):
+    """
+    数据库分类配置
+
+    用于对多个数据库进行分类管理，支持：
+    - 主业务库（需独立索引）
+    - 次要业务库（需独立索引）
+    - 园区库（模板 + 实例，复用 embedding）
+    - 排除库（不索引）
+
+    Attributes:
+        primary_databases: 主业务库列表
+        secondary_databases: 次要业务库列表
+        excluded_databases: 排除的库列表
+        park_prefix: 园区库名前缀
+        park_template_db: 园区库模板名（自动选择第一个）
+        system_databases: 系统库（自动排除）
+    """
+
+    primary_databases: List[str] = ["parkcloud"]
+    secondary_databases: List[str] = ["db_parking_center", "cloudinterface"]
+    excluded_databases: List[str] = ["parkstandard"]
+
+    # 园区库配置
+    park_prefix: str = "p"
+    park_template_db: Optional[str] = None  # 自动选择第一个园区库
+
+    # 系统库（自动排除）
+    system_databases: List[str] = [
+        "information_schema",
+        "mysql",
+        "performance_schema",
+        "sys"
+    ]
+
+    def classify_database(self, db_name: str, available_databases: Optional[List[str]] = None) -> DatabaseType:
+        """
+        分类单个数据库
+
+        Args:
+            db_name: 数据库名
+            available_databases: 可用数据库列表（用于选择园区库模板）
+
+        Returns:
+            DatabaseType 枚举值
+        """
+        # 系统库和排除库
+        if db_name in self.system_databases or db_name in self.excluded_databases:
+            return DatabaseType.EXCLUDED
+
+        # 主业务库
+        if db_name in self.primary_databases:
+            return DatabaseType.PRIMARY
+
+        # 次要业务库
+        if db_name in self.secondary_databases:
+            return DatabaseType.SECONDARY
+
+        # 园区库
+        if db_name.startswith(self.park_prefix):
+            # 确定模板库
+            if available_databases:
+                park_dbs = sorted([db for db in available_databases if db.startswith(self.park_prefix)])
+                if park_dbs:
+                    template = park_dbs[0]
+                    if db_name == template:
+                        return DatabaseType.PARK_TEMPLATE
+                    return DatabaseType.PARK_INSTANCE
+            # 如果没有提供可用数据库列表，使用配置的模板
+            if self.park_template_db and db_name == self.park_template_db:
+                return DatabaseType.PARK_TEMPLATE
+            return DatabaseType.PARK_INSTANCE
+
+        # 默认为次要业务库
+        return DatabaseType.SECONDARY
+
+    def classify_all_databases(self, databases: List[str]) -> Dict[str, DatabaseType]:
+        """
+        分类所有数据库
+
+        Args:
+            databases: 数据库列表
+
+        Returns:
+            {数据库名: 分类} 字典
+        """
+        return {db: self.classify_database(db, databases) for db in databases}
+
+    def get_template_database(self, available_databases: List[str]) -> Optional[str]:
+        """
+        获取园区库模板数据库名
+
+        Args:
+            available_databases: 可用数据库列表
+
+        Returns:
+            模板数据库名（字典序第一个园区库）
+        """
+        park_dbs = sorted([db for db in available_databases if db.startswith(self.park_prefix)])
+        return park_dbs[0] if park_dbs else None
+
+    def get_park_instances(self, available_databases: List[str]) -> List[str]:
+        """
+        获取所有园区库实例名
+
+        Args:
+            available_databases: 可用数据库列表
+
+        Returns:
+            园区库实例名列表（排除模板）
+        """
+        park_dbs = sorted([db for db in available_databases if db.startswith(self.park_prefix)])
+        if len(park_dbs) <= 1:
+            return []
+        return park_dbs[1:]  # 返回除第一个外的所有园区库
+
+
+class MultiDatabaseIndexProgress(BaseModel):
+    """多库索引进度"""
+    status: str = "pending"
+    total_databases: int = 0
+    indexed_databases: int = 0
+    current_database: str = ""
+
+    # 详细进度
+    database_progress: Dict[str, IndexProgress] = Field(default_factory=dict)
+
+    # 模板进度
+    template_indexed: bool = False
+    template_cloned: bool = False
+    clone_progress: int = 0
+
+    last_updated: str = Field(default_factory=lambda: datetime.now().isoformat())
+    errors: List[str] = Field(default_factory=list)
+
+    def get_overall_progress(self) -> float:
+        """获取整体进度百分比"""
+        if self.total_databases == 0:
+            return 0.0
+        return (self.indexed_databases / self.total_databases) * 100
+
+    def update_database_progress(self, db_name: str, progress: IndexProgress) -> None:
+        """更新单个数据库的索引进度"""
+        self.database_progress[db_name] = progress
+        self.last_updated = datetime.now().isoformat()
+
+
+class MultiDatabaseIndexResult(BaseModel):
+    """多库索引结果"""
+    success: bool
+    total_databases: int
+    indexed_databases: int
+    failed_databases: List[str] = Field(default_factory=list)
+
+    # 分类统计
+    primary_count: int = 0
+    secondary_count: int = 0
+    park_template_count: int = 0
+    park_instance_count: int = 0
+
+    # 表统计
+    total_tables: int = 0
+    embedded_tables: int = 0  # 实际生成 embedding 的表数
+
+    elapsed_seconds: float = 0.0
+
+    def get_database_success_rate(self) -> float:
+        """获取数据库索引成功率"""
+        if self.total_databases == 0:
+            return 100.0 if self.success else 0.0
+        return (self.indexed_databases / self.total_databases) * 100
+
+    def get_embedding_savings_rate(self) -> float:
+        """获取 embedding 节省率（园区库复用模板）"""
+        if self.total_tables == 0:
+            return 0.0
+        # 节省的 embedding 数 = 总表数 - 实际生成 embedding 的表数
+        saved = self.total_tables - self.embedded_tables
+        return (saved / self.total_tables) * 100

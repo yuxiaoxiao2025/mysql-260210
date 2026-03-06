@@ -1,9 +1,12 @@
 .worktrees/
+.pytest_tmp/
 
 # 元数据知识图谱数据目录（可重建，不提交）
 data/*/chroma_db/
 data/*/backups/
 data/*/index_progress.json
+data/test/
+data/new_env_test/
 
 # 保留目录结构
 !data/dev/.gitkeep
