@@ -79,6 +79,13 @@ class OperationExecutor:
                 error=f"未找到操作模板: {operation_id}"
             )
 
+        logger.info(
+            "Executing operation: %s (preview_only=%s, auto_commit=%s)",
+            operation_id,
+            preview_only,
+            auto_commit,
+        )
+
         # 2. 校验参数
         validation_result = self._validate_params(operation, params)
         if not validation_result["valid"]:
