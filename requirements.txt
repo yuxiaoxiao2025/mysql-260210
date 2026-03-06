@@ -7,8 +7,10 @@ openpyxl
 dashscope
 pytest
 sqlglot
+PyYAML
 
 fastapi
 uvicorn
 httpx
 tenacity
+chromadb

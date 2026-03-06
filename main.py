@@ -24,6 +24,13 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+def _configure_stdio_encoding():
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except Exception:
+            continue
+
 from src.db_manager import DatabaseManager
 from src.exporter import ExcelExporter
 from src.schema_loader import SchemaLoader
@@ -37,37 +44,39 @@ from src.monitoring import MetricsCollector, AlertManager, setup_structured_logg
 
 def print_welcome():
     print("=" * 60)
-    print("🚗 漕河泾停车云数据导出工具 v3.0 (AI Enhanced + Smart Operations)")
+    print("MySQL Export Tool v3.0 (AI Enhanced + Smart Operations)")
     print("=" * 60)
-    print("✨ 新功能：智能业务操作")
+    print("新功能：智能业务操作")
     print("  现在可以直接使用业务语言，系统会自动识别并执行操作：")
     print("  '下发车牌 沪ABC1234 到 国际商务中心'")
     print("  '查询车牌 沪A12345'")
     print("  '查看30天内到期的车牌'")
     print("-" * 60)
-    print("📝 命令列表：")
+    print("命令列表：")
     print("  list tables       - 列出所有表")
     print("  desc <table>      - 查看表结构")
     print("  help [operation]  - 查看帮助或操作详情")
     print("  operations        - 列出所有可用操作")
+    print("  index schema      - 索引所有数据库的表结构")
     print("  exit / quit       - 退出程序")
     print("-" * 60)
-    print("💡 也可以直接输入自然语言或 SQL 语句")
+    print("也可以直接输入自然语言或 SQL 语句")
     print("=" * 60)
 
 def main():
+    _configure_stdio_encoding()
     logger.info("应用程序启动")
     try:
         print("正在连接数据库...")
         db = DatabaseManager()
         exporter = ExcelExporter()
         logger.info("数据库连接成功")
-        print("✅ 数据库连接成功！")
+        print("[OK] 数据库连接成功！")
 
         print("正在加载业务知识库...")
         knowledge_loader = KnowledgeLoader(db_manager=db)
         logger.info(f"知识库加载成功，共 {len(knowledge_loader.get_all_operations())} 个操作模板")
-        print(f"✅ 知识库加载成功！({len(knowledge_loader.get_all_operations())} 个操作模板)")
+        print(f"[OK] 知识库加载成功！({len(knowledge_loader.get_all_operations())} 个操作模板)")
 
         print("正在加载 AI 模块...")
         llm = LLMClient()
@@ -78,7 +87,7 @@ def main():
         intent_recognizer = IntentRecognizer(llm, knowledge_loader)
         operation_executor = OperationExecutor(db, knowledge_loader)
         logger.info("AI 模块加载成功")
-        print("✅ AI 模块加载成功！")
+        print("[OK] AI 模块加载成功！")
 
         # 初始化监控和告警系统
         print("正在初始化监控系统...")
@@ -94,11 +103,11 @@ def main():
             notifiers=[LogNotifier(operation_logger=operation_logger)]
         )
         logger.info("监控系统初始化成功")
-        print("✅ 监控系统初始化成功！")
+        print("[OK] 监控系统初始化成功！")
 
     except Exception as e:
         logger.error(f"初始化失败: {e}")
-        print(f"❌ 初始化失败: {e}")
+        print(f"[ERR] 初始化失败: {e}")
         return
 
     print_welcome()
@@ -114,12 +123,12 @@ def main():
 
             if user_input.lower() in ('exit', 'quit'):
                 logger.info("用户退出应用程序")
-                print("👋 再见！")
+                print("再见！")
                 break
 
             if user_input.lower() == 'list tables':
                 tables = db.get_all_tables()
-                print("\n📊 数据库中的表：")
+                print("\n数据库中的表：")
                 for i, t in enumerate(tables):
                     print(f"  {i+1}. {t}")
                 continue
@@ -128,13 +137,13 @@ def main():
                 table_name = user_input.split()[1]
                 try:
                     schema = db.get_table_schema(table_name)
-                    print(f"\n📋 表 {table_name} 结构：")
+                    print(f"\n表 {table_name} 结构：")
                     print(f"{'字段名':<20} {'类型':<15} {'注释'}")
                     print("-" * 50)
                     for col in schema:
                         print(f"{col['name']:<20} {col['type']:<15} {col['comment']}")
                 except Exception as e:
-                    print(f"❌ 获取表结构失败: {e}")
+                    print(f"[ERR] 获取表结构失败: {e}")
                 continue
 
             # 新增：help 命令
@@ -143,6 +152,7 @@ def main():
                 print("\n📖 详细帮助：")
                 print("  使用 'operations' 查看所有可用操作")
                 print("  使用 'help <操作名>' 查看操作详情，如 'help plate_distribute'")
+                print("  使用 'index schema [--env dev|prod] [--batch-size N] [--force]' 执行索引")
                 continue
 
             if user_input.lower().startswith('help '):
@@ -156,6 +166,73 @@ def main():
                 ops_text = intent_recognizer.list_available_operations()
                 print(f"\n{ops_text}")
                 continue
+
+            # 新增：索引命令
+            if user_input.lower().startswith('index schema'):
+                tokens = shlex.split(user_input)
+                env = "dev"
+                batch_size = 10
+                force = False
+
+                idx = 2
+                while idx < len(tokens):
+                    token = tokens[idx]
+                    if token == "--env" and idx + 1 < len(tokens):
+                        env = tokens[idx + 1]
+                        idx += 2
+                        continue
+                    if token == "--batch-size" and idx + 1 < len(tokens):
+                        try:
+                            batch_size = int(tokens[idx + 1])
+                        except ValueError:
+                            print("[ERR] --batch-size 必须是整数")
+                            batch_size = 10
+                        idx += 2
+                        continue
+                    if token == "--force":
+                        force = True
+                        idx += 1
+                        continue
+                    print(f"[ERR] 未识别的参数: {token}")
+                    break
+                else:
+                    if env not in ("dev", "prod"):
+                        print("[ERR] --env 仅支持 dev 或 prod")
+                        continue
+
+                    from src.metadata.schema_indexer import SchemaIndexer
+                    from src.metadata.graph_store import GraphStore
+
+                    print("\n开始索引数据库表...")
+                    print(f"环境: {env}, 批量大小: {batch_size}, 强制重建: {force}")
+
+                    indexer = SchemaIndexer(db_manager=db, env=env)
+                    if force:
+                        print("清除现有索引...")
+                        indexer.clear_progress()
+                        GraphStore(env=env).clear_all()
+                        print("[OK] 清除完成")
+
+                    try:
+                        result = indexer.index_all_databases(batch_size=batch_size)
+                    except Exception as e:
+                        print(f"[ERR] 索引失败: {e}")
+                        continue
+
+                    print("\n" + "=" * 60)
+                    print("索引完成")
+                    print("=" * 60)
+                    print(f"状态: {'成功' if result.success else '部分失败'}")
+                    print(f"总表数: {result.total_tables}")
+                    print(f"已索引: {result.indexed_tables}")
+                    print(f"耗时: {result.elapsed_seconds:.2f} 秒")
+
+                    if result.failed_tables:
+                        print(f"\n失败的表 ({len(result.failed_tables)}):")
+                        for table in result.failed_tables:
+                            print(f"  - {table}")
+
+                    continue
 
             # ========== 智能意图识别 ==========
 
