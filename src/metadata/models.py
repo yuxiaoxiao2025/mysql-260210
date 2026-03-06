@@ -57,22 +57,36 @@ class TableMetadata(BaseModel):
     Attributes:
         table_name: Name of the table.
         database_name: Name of the database containing this table.
+        namespace: Namespace for multi-database isolation.
         comment: Table description/comment from database.
         columns: List of column metadata for this table.
         foreign_keys: List of foreign key relationships from this table.
         business_domain: Business category for this table (e.g., '车辆管理', '场库管理').
         schema_text: Natural language description of the table schema.
         tags: List of tags for categorization and search.
+        is_template: Whether this table is a park template table.
+        template_for: Database names this template applies to.
+        template_source: Template database name this table was cloned from.
     """
 
     table_name: str
     database_name: str = ""
+    namespace: str = ""
     comment: str = ""
     columns: List[ColumnMetadata] = Field(default_factory=list)
     foreign_keys: List[ForeignKeyRelation] = Field(default_factory=list)
     business_domain: str = "其他"
     schema_text: str = ""
     tags: List[str] = Field(default_factory=list)
+    is_template: bool = False
+    template_for: List[str] = Field(default_factory=list)
+    template_source: Optional[str] = None
+
+    @property
+    def qualified_name(self) -> str:
+        if self.database_name:
+            return f"{self.database_name}.{self.table_name}"
+        return self.table_name
 
     def get_column(self, column_name: str) -> Optional[ColumnMetadata]:
         """
@@ -121,12 +135,20 @@ class KnowledgeGraph(BaseModel):
         created_at: ISO timestamp of when the graph was created.
         updated_at: ISO timestamp of when the graph was last updated.
         tables: List of all table metadata in the knowledge graph.
+        namespaces: Mapping of namespace to description or label.
+        template_mapping: Mapping of park instances to template namespace.
+        park_instances: List of park instance database names.
+        database_classification: Mapping of database name to classification.
     """
 
-    version: str = "1.0"
+    version: str = "2.0"
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now().isoformat())
     tables: List[TableMetadata] = Field(default_factory=list)
+    namespaces: Dict[str, str] = Field(default_factory=dict)
+    template_mapping: Dict[str, str] = Field(default_factory=dict)
+    park_instances: List[str] = Field(default_factory=list)
+    database_classification: Dict[str, str] = Field(default_factory=dict)
 
     def get_table(self, name: str) -> Optional[TableMetadata]:
         """
@@ -190,6 +212,28 @@ class KnowledgeGraph(BaseModel):
             List of tables in the specified domain.
         """
         return [table for table in self.tables if table.business_domain == domain]
+
+    def get_tables_by_namespace(self, namespace: str) -> List[TableMetadata]:
+        """
+        Get all tables in a specific namespace.
+
+        Args:
+            namespace: Namespace to filter by.
+
+        Returns:
+            List of tables in the specified namespace.
+        """
+        return [table for table in self.tables if table.namespace == namespace]
+
+    def get_all_namespaces(self) -> List[str]:
+        """
+        Get all unique namespaces in the knowledge graph.
+
+        Returns:
+            List of unique namespace names.
+        """
+        namespaces = {table.namespace for table in self.tables if table.namespace}
+        return sorted(list(namespaces))
 
     def get_tables_by_tag(self, tag: str) -> List[TableMetadata]:
         """

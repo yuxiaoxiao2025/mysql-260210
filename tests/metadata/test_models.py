@@ -236,7 +236,7 @@ class TestKnowledgeGraph:
         """Test creating KnowledgeGraph with defaults."""
         graph = KnowledgeGraph()
 
-        assert graph.version == "1.0"
+        assert graph.version == "2.0"
         assert graph.tables == []
         assert graph.created_at is not None
         assert graph.updated_at is not None
