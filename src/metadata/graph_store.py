@@ -94,6 +94,8 @@ class GraphStore:
             "namespace": namespace,
             "business_domain": table.business_domain,
             "comment": table.comment[:500] if table.comment else "",  # Truncate long comments
+            "semantic_description": table.semantic_description or "",
+            "semantic_tags": ",".join(table.semantic_tags) if table.semantic_tags else "",
         }
 
         try:
@@ -195,6 +197,8 @@ class GraphStore:
                 "namespace": t.namespace or "",
                 "business_domain": t.business_domain,
                 "comment": t.comment[:500] if t.comment else "",
+                "semantic_description": t.semantic_description or "",
+                "semantic_tags": ",".join(t.semantic_tags) if t.semantic_tags else "",
             }
             for t in tables
         ]

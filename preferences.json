@@ -2,8 +2,8 @@
   "semantic_mappings": {
     "测试": {
       "table": "test_table",
-      "confidence": 0.9166140915016672,
-      "used_count": 17,
+      "confidence": 0.9392116727047154,
+      "used_count": 20,
       "all_tables": [
         "test_table"
       ]
