@@ -153,7 +153,9 @@ class PreferenceLearner:
                 
                 # 返回映射信息
                 return {
-                    "tables": [mapping["table"]] if mapping["table"] else mapping.get("all_tables", []),
+                    "tables": mapping.get("all_tables") or (
+                        [mapping["table"]] if mapping["table"] else []
+                    ),
                     "confidence": mapping["confidence"],
                     "used_count": mapping["used_count"]
                 }
