@@ -19,6 +19,7 @@ from src.db_manager import DatabaseManager
 from src.metadata.domain_classifier import DomainClassifier
 from src.metadata.embedding_service import EmbeddingService
 from src.metadata.graph_store import GraphStore
+from src.metadata.classification import DatabaseType
 from src.metadata.models import (
     ColumnMetadata,
     ForeignKeyRelation,
@@ -64,7 +65,7 @@ class SchemaIndexer:
             graph_store: Graph store instance (created if not provided).
             env: Environment name for storage paths ('dev' or 'prod').
         """
-        self.db_manager = db_manager or DatabaseManager()
+        self.db_manager = db_manager or DatabaseManager(specific_db=None)
         self.embedding_service = embedding_service or EmbeddingService()
         self.graph_store = graph_store or GraphStore(env=env)
         self.domain_classifier = DomainClassifier()
@@ -102,6 +103,16 @@ class SchemaIndexer:
         """
         start_time = time.time()
         logger.info(f"Starting full schema indexing with batch_size={batch_size}")
+
+        current_db = self._get_current_database_name()
+        if not current_db:
+            logger.error("No active database selected for indexing")
+            return IndexResult(
+                success=False,
+                total_tables=0,
+                indexed_tables=0,
+                elapsed_seconds=time.time() - start_time,
+            )
 
         # Get all table names
         try:
@@ -163,7 +174,7 @@ class SchemaIndexer:
             )
 
             try:
-                batch_result = self._index_batch(batch, knowledge_graph)
+                batch_result = self._index_batch(current_db, batch, knowledge_graph)
 
                 # Update progress
                 total_indexed += batch_result["success_count"]
@@ -214,7 +225,7 @@ class SchemaIndexer:
             elapsed_seconds=elapsed_seconds,
         )
 
-    def _extract_table_metadata(self, table_name: str) -> TableMetadata:
+    def _extract_table_metadata(self, db_name: str, table_name: str) -> TableMetadata:
         """
         Extract table metadata from MySQL information_schema.
 
@@ -238,13 +249,13 @@ class SchemaIndexer:
                 TABLE_SCHEMA as database_name,
                 TABLE_COMMENT as comment
             FROM information_schema.TABLES
-            WHERE TABLE_SCHEMA = DATABASE()
+            WHERE TABLE_SCHEMA = :db_name
                 AND TABLE_NAME = :table_name
         """
 
         with self.db_manager.get_connection() as conn:
             table_info_result = conn.execute(
-                text(table_info_sql), {"table_name": table_name}
+                text(table_info_sql), {"table_name": table_name, "db_name": db_name}
             )
             table_info_row = table_info_result.fetchone()
 
@@ -264,14 +275,14 @@ class SchemaIndexer:
                 COLUMN_COMMENT,
                 COLUMN_KEY
             FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE()
+            WHERE TABLE_SCHEMA = :db_name
                 AND TABLE_NAME = :table_name
             ORDER BY ORDINAL_POSITION
         """
 
         with self.db_manager.get_connection() as conn:
             columns_result = conn.execute(
-                text(columns_sql), {"table_name": table_name}
+                text(columns_sql), {"table_name": table_name, "db_name": db_name}
             )
             columns_rows = columns_result.fetchall()
 
@@ -293,7 +304,7 @@ class SchemaIndexer:
             )
 
         # Extract foreign keys
-        foreign_keys = self._extract_foreign_keys(table_name)
+        foreign_keys = self._extract_foreign_keys(db_name, table_name)
 
         # Update column metadata with foreign key information
         fk_columns = {fk.column_name: fk for fk in foreign_keys}
@@ -320,6 +331,7 @@ class SchemaIndexer:
         return TableMetadata(
             table_name=table_name,
             database_name=database_name,
+            namespace=db_name,
             comment=table_comment,
             columns=columns,
             foreign_keys=foreign_keys,
@@ -328,7 +340,9 @@ class SchemaIndexer:
             tags=tags,
         )
 
-    def _extract_foreign_keys(self, table_name: str) -> List[ForeignKeyRelation]:
+    def _extract_foreign_keys(
+        self, db_name: str, table_name: str
+    ) -> List[ForeignKeyRelation]:
         """
         Extract foreign key relationships from information_schema.
 
@@ -347,7 +361,7 @@ class SchemaIndexer:
                 REFERENCED_TABLE_NAME,
                 REFERENCED_COLUMN_NAME
             FROM information_schema.KEY_COLUMN_USAGE
-            WHERE TABLE_SCHEMA = DATABASE()
+            WHERE TABLE_SCHEMA = :db_name
                 AND TABLE_NAME = :table_name
                 AND REFERENCED_TABLE_NAME IS NOT NULL
         """
@@ -356,7 +370,9 @@ class SchemaIndexer:
 
         try:
             with self.db_manager.get_connection() as conn:
-                result = conn.execute(text(sql), {"table_name": table_name})
+                result = conn.execute(
+                    text(sql), {"table_name": table_name, "db_name": db_name}
+                )
                 rows = result.fetchall()
 
             for row in rows:
@@ -490,7 +506,7 @@ class SchemaIndexer:
         return list(dict.fromkeys(tags))
 
     def _index_batch(
-        self, tables: List[str], knowledge_graph: KnowledgeGraph
+        self, db_name: str, tables: List[str], knowledge_graph: KnowledgeGraph
     ) -> Dict[str, Any]:
         """
         Index a batch of tables.
@@ -523,7 +539,7 @@ class SchemaIndexer:
         for table_name in tables:
             try:
                 # Extract metadata
-                table_metadata = self._extract_table_metadata(table_name)
+                table_metadata = self._extract_table_metadata(db_name, table_name)
                 table_metadatas.append(table_metadata)
                 table_texts.append(table_metadata.schema_text)
 
@@ -564,7 +580,10 @@ class SchemaIndexer:
                 if field_texts:
                     field_embeddings = self.embedding_service.embed_batch(field_texts)
                     self.graph_store.add_fields_batch(
-                        table_name, field_columns, field_embeddings
+                        table_name,
+                        field_columns,
+                        field_embeddings,
+                        namespace=table_metadata.namespace
                     )
 
                 # Add to knowledge graph
@@ -658,7 +677,12 @@ class SchemaIndexer:
 
         try:
             # Extract metadata
-            table_metadata = self._extract_table_metadata(table_name)
+            current_db = self._get_current_database_name()
+            if not current_db:
+                logger.error("No active database selected for indexing")
+                return None
+
+            table_metadata = self._extract_table_metadata(current_db, table_name)
 
             # Generate table embedding
             table_embedding = self.embedding_service.embed_text(
@@ -672,11 +696,169 @@ class SchemaIndexer:
             for col in table_metadata.columns:
                 field_text = self._generate_field_schema_text(table_name, col)
                 field_embedding = self.embedding_service.embed_text(field_text)
-                self.graph_store.add_field(table_name, col, field_embedding)
+                self.graph_store.add_field(
+                    table_name,
+                    col,
+                    field_embedding,
+                    namespace=table_metadata.namespace
+                )
 
             logger.info(f"Successfully indexed table: {table_name}")
             return table_metadata
 
         except Exception as e:
             logger.error(f"Failed to index table {table_name}: {e}")
+            return None
+
+    def index_database(
+        self,
+        db_name: str,
+        batch_size: int = 10,
+        knowledge_graph: Optional[KnowledgeGraph] = None
+    ) -> IndexResult:
+        """
+        Index all tables in a specific database.
+
+        Args:
+            db_name: Database name to index.
+            batch_size: Number of tables per batch.
+            knowledge_graph: Optional existing knowledge graph to extend.
+
+        Returns:
+            IndexResult for the database indexing.
+        """
+        start_time = time.time()
+        graph = knowledge_graph or KnowledgeGraph()
+
+        try:
+            all_tables = self.db_manager.get_tables_in_database(db_name)
+        except Exception as e:
+            logger.error(f"Failed to get table list for {db_name}: {e}")
+            return IndexResult(
+                success=False,
+                total_tables=0,
+                indexed_tables=0,
+                elapsed_seconds=time.time() - start_time,
+            )
+
+        if not all_tables:
+            return IndexResult(
+                success=True,
+                total_tables=0,
+                indexed_tables=0,
+                elapsed_seconds=time.time() - start_time,
+            )
+
+        failed_tables: List[str] = []
+        total_indexed = 0
+
+        for i in range(0, len(all_tables), batch_size):
+            batch = all_tables[i : i + batch_size]
+            try:
+                batch_result = self._index_batch(db_name, batch, graph)
+                total_indexed += batch_result["success_count"]
+                failed_tables.extend(batch_result["failed"])
+            except Exception as e:
+                logger.error(f"Batch indexing failed for {db_name}: {e}")
+                failed_tables.extend(batch)
+
+        if knowledge_graph is None:
+            self.graph_store.save_graph(graph)
+
+        return IndexResult(
+            success=len(failed_tables) == 0,
+            total_tables=len(all_tables),
+            indexed_tables=total_indexed,
+            failed_tables=failed_tables,
+            elapsed_seconds=time.time() - start_time,
+        )
+
+    def index_all_databases(self, batch_size: int = 10) -> IndexResult:
+        """
+        Index all databases with template cloning for park instances.
+        """
+        start_time = time.time()
+        knowledge_graph = KnowledgeGraph()
+
+        try:
+            all_databases = self.db_manager.get_all_databases(exclude_system=True)
+        except Exception as e:
+            logger.error(f"Failed to get database list: {e}")
+            return IndexResult(
+                success=False,
+                total_tables=0,
+                indexed_tables=0,
+                elapsed_seconds=time.time() - start_time,
+            )
+
+        (
+            primary_dbs,
+            template_dbs,
+            park_instances
+        ) = self._classify_databases(all_databases)
+
+        for db_name in primary_dbs:
+            self.index_database(
+                db_name,
+                batch_size=batch_size,
+                knowledge_graph=knowledge_graph
+            )
+            knowledge_graph.database_classification[db_name] = DatabaseType.PRIMARY.value
+
+        template_db = template_dbs[0] if template_dbs else None
+        if template_db:
+            self.index_database(
+                template_db,
+                batch_size=batch_size,
+                knowledge_graph=knowledge_graph
+            )
+            knowledge_graph.database_classification[template_db] = DatabaseType.PARK_TEMPLATE.value
+
+        if template_db:
+            for instance_db in park_instances:
+                self.graph_store.clone_namespace(template_db, instance_db)
+                knowledge_graph.template_mapping[instance_db] = template_db
+                knowledge_graph.park_instances.append(instance_db)
+                knowledge_graph.database_classification[instance_db] = DatabaseType.PARK_INSTANCE.value
+        else:
+            for instance_db in park_instances:
+                self.index_database(
+                    instance_db,
+                    batch_size=batch_size,
+                    knowledge_graph=knowledge_graph
+                )
+                knowledge_graph.database_classification[instance_db] = DatabaseType.PARK_INSTANCE.value
+
+        self.graph_store.save_graph(knowledge_graph)
+
+        return IndexResult(
+            success=True,
+            total_tables=len(knowledge_graph.tables),
+            indexed_tables=len(knowledge_graph.tables),
+            elapsed_seconds=time.time() - start_time,
+        )
+
+    def _classify_databases(
+        self, databases: List[str]
+    ) -> tuple[List[str], List[str], List[str]]:
+        template_dbs = [
+            db for db in databases if "template" in db.lower()
+        ]
+        park_instances = [
+            db for db in databases
+            if "park" in db.lower() and db not in template_dbs
+        ]
+        primary_dbs = [
+            db for db in databases
+            if db not in template_dbs and db not in park_instances
+        ]
+        return primary_dbs, template_dbs, park_instances
+
+    def _get_current_database_name(self) -> Optional[str]:
+        try:
+            with self.db_manager.get_connection() as conn:
+                result = conn.execute(text("SELECT DATABASE()"))
+                return result.scalar()
+        except Exception as e:
+            logger.error(f"Failed to get current database: {e}")
             return None
