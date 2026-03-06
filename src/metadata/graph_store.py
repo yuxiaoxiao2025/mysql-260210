@@ -87,9 +87,11 @@ class GraphStore:
                 f"Embedding dimension must be 1024, got {len(embedding)}"
             )
 
-        table_id = table.table_name
+        namespace = table.namespace or ""
+        table_id = self._build_table_id(table.table_name, namespace)
         metadata = {
             "database_name": table.database_name,
+            "namespace": namespace,
             "business_domain": table.business_domain,
             "comment": table.comment[:500] if table.comment else "",  # Truncate long comments
         }
@@ -109,7 +111,8 @@ class GraphStore:
         self,
         table_name: str,
         column: ColumnMetadata,
-        embedding: List[float]
+        embedding: List[float],
+        namespace: Optional[str] = None
     ) -> None:
         """
         Add a field vector to the collection.
@@ -127,9 +130,11 @@ class GraphStore:
                 f"Embedding dimension must be 1024, got {len(embedding)}"
             )
 
-        field_id = f"{table_name}.{column.name}"
+        resolved_namespace = namespace or ""
+        field_id = self._build_field_id(table_name, column.name, resolved_namespace)
         metadata = {
             "table_name": table_name,
+            "namespace": resolved_namespace,
             "data_type": column.data_type,
             "is_primary_key": column.is_primary_key,
             "is_foreign_key": column.is_foreign_key,
@@ -180,10 +185,14 @@ class GraphStore:
                     f"Embedding {i} has wrong dimension: {len(emb)}, expected 1024"
                 )
 
-        ids = [t.table_name for t in tables]
+        ids = [
+            self._build_table_id(t.table_name, t.namespace or "")
+            for t in tables
+        ]
         metadatas = [
             {
                 "database_name": t.database_name,
+                "namespace": t.namespace or "",
                 "business_domain": t.business_domain,
                 "comment": t.comment[:500] if t.comment else "",
             }
@@ -205,7 +214,8 @@ class GraphStore:
         self,
         table_name: str,
         columns: List[ColumnMetadata],
-        embeddings: List[List[float]]
+        embeddings: List[List[float]],
+        namespace: Optional[str] = None
     ) -> None:
         """
         Add multiple field vectors in a batch operation.
@@ -233,10 +243,15 @@ class GraphStore:
                     f"Embedding {i} has wrong dimension: {len(emb)}, expected 1024"
                 )
 
-        ids = [f"{table_name}.{c.name}" for c in columns]
+        resolved_namespace = namespace or ""
+        ids = [
+            self._build_field_id(table_name, c.name, resolved_namespace)
+            for c in columns
+        ]
         metadatas = [
             {
                 "table_name": table_name,
+                "namespace": resolved_namespace,
                 "data_type": c.data_type,
                 "is_primary_key": c.is_primary_key,
                 "is_foreign_key": c.is_foreign_key,
@@ -343,7 +358,8 @@ class GraphStore:
     def query_tables(
         self,
         embedding: List[float],
-        top_k: int = 5
+        top_k: int = 5,
+        namespace: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Query for similar tables based on embedding.
@@ -364,9 +380,11 @@ class GraphStore:
             )
 
         try:
+            where_filter = {"namespace": namespace} if namespace else None
             results = self.table_collection.query(
                 query_embeddings=[embedding],
-                n_results=top_k
+                n_results=top_k,
+                where=where_filter
             )
 
             # Format results
@@ -390,7 +408,8 @@ class GraphStore:
         self,
         embedding: List[float],
         filter_tables: Optional[List[str]] = None,
-        top_k: int = 5
+        top_k: int = 5,
+        namespace: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Query for similar fields based on embedding.
@@ -414,8 +433,17 @@ class GraphStore:
         try:
             # Build where filter if table filter is provided
             where_filter = None
-            if filter_tables:
+            if filter_tables and namespace:
+                where_filter = {
+                    "$and": [
+                        {"table_name": {"$in": filter_tables}},
+                        {"namespace": namespace},
+                    ]
+                }
+            elif filter_tables:
                 where_filter = {"table_name": {"$in": filter_tables}}
+            elif namespace:
+                where_filter = {"namespace": namespace}
 
             results = self.field_collection.query(
                 query_embeddings=[embedding],
@@ -532,3 +560,77 @@ class GraphStore:
             "json_exists": self.json_path.exists(),
             "backup_path": str(self.backup_path),
         }
+
+    def clone_namespace(self, source_ns: str, target_ns: str) -> None:
+        """
+        Clone all vectors from one namespace to another.
+
+        Args:
+            source_ns: Source namespace.
+            target_ns: Target namespace.
+        """
+        self._clone_collection_namespace(
+            self.table_collection,
+            source_ns,
+            target_ns,
+            id_transform=self._clone_table_id
+        )
+        self._clone_collection_namespace(
+            self.field_collection,
+            source_ns,
+            target_ns,
+            id_transform=self._clone_field_id
+        )
+
+    def _clone_collection_namespace(
+        self,
+        collection: Any,
+        source_ns: str,
+        target_ns: str,
+        id_transform: Any
+    ) -> None:
+        data = collection.get(
+            where={"namespace": source_ns},
+            include=["embeddings", "metadatas"]
+        )
+        ids = data.get("ids") or []
+        embeddings = data.get("embeddings") or []
+        metadatas = data.get("metadatas") or []
+
+        if not ids:
+            return
+
+        new_ids = [id_transform(item_id, source_ns, target_ns) for item_id in ids]
+        new_metadatas = []
+        for metadata in metadatas:
+            updated = dict(metadata or {})
+            updated["namespace"] = target_ns
+            new_metadatas.append(updated)
+
+        collection.upsert(
+            ids=new_ids,
+            embeddings=embeddings,
+            metadatas=new_metadatas
+        )
+
+    def _build_table_id(self, table_name: str, namespace: str) -> str:
+        if namespace:
+            return f"{namespace}.{table_name}"
+        return table_name
+
+    def _build_field_id(self, table_name: str, column_name: str, namespace: str) -> str:
+        if namespace:
+            return f"{namespace}.{table_name}.{column_name}"
+        return f"{table_name}.{column_name}"
+
+    def _clone_table_id(self, table_id: str, source_ns: str, target_ns: str) -> str:
+        prefix = f"{source_ns}."
+        if table_id.startswith(prefix):
+            return f"{target_ns}.{table_id[len(prefix):]}"
+        return table_id
+
+    def _clone_field_id(self, field_id: str, source_ns: str, target_ns: str) -> str:
+        prefix = f"{source_ns}."
+        if field_id.startswith(prefix):
+            return f"{target_ns}.{field_id[len(prefix):]}"
+        return field_id
