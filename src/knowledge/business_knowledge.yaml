@@ -48,8 +48,9 @@ operations:
         sql: |
           UPDATE parkcloud.cloud_fixed_plate_park_down d
           JOIN parkcloud.cloud_park p ON d.park_id = p.id
+          JOIN parkcloud.cloud_fixed_plate_park fp ON fp.park_id = p.id
           SET d.state = 1, d.editflag = NOW()
-          WHERE p.name = :park_name
+          WHERE p.name = :park_name AND fp.plate = :plate
         affects_rows: single
       - name: 确保下发记录存在
         description: 如果场库没有下发记录则插入（使用固定车牌表中的最小id）

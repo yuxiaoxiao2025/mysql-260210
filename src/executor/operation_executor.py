@@ -236,12 +236,11 @@ class OperationExecutor:
 
         try:
             # 使用参数化查询防止 SQL 注入
-            from sqlalchemy import text
             sql_template, bound_params = self._render_sql(operation.sql, params)
 
             # 执行查询（使用参数化）
             with self.db_manager.get_connection() as conn:
-                df = pd.read_sql(text(sql_template), conn, params=bound_params)
+                df = self._read_sql(sql_template, conn, bound_params)
 
             # 转换为字典列表
             results = df.to_dict('records')
@@ -314,9 +313,8 @@ class OperationExecutor:
                 before_data = []
                 if preview_sql:
                     try:
-                        from sqlalchemy import text
                         with self.db_manager.get_connection() as conn:
-                            before_df = pd.read_sql(text(preview_sql), conn, params=bound_params)
+                            before_df = self._read_sql(preview_sql, conn, bound_params)
                         before_data = before_df.to_dict('records')
                     except Exception as e:
                         logger.warning(f"获取预览数据失败: {e}")
@@ -431,6 +429,19 @@ class OperationExecutor:
             bound_params[key] = value
 
         return sql_template, bound_params
+
+    def _is_sqlalchemy_connection(self, conn: Any) -> bool:
+        try:
+            from sqlalchemy.engine import Connection
+        except Exception:
+            return False
+        return isinstance(conn, Connection)
+
+    def _read_sql(self, sql: str, conn: Any, params: Dict[str, Any]) -> pd.DataFrame:
+        if self._is_sqlalchemy_connection(conn):
+            from sqlalchemy import text
+            return pd.read_sql(text(sql), conn, params=params)
+        return pd.read_sql(sql, conn, params=params)
 
     def _generate_preview_sql(self, sql: str, affects_rows: str) -> Optional[str]:
         """
