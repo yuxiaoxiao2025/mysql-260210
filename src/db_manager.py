@@ -4,9 +4,17 @@ from src.config import get_db_url
 from sqlalchemy.pool import QueuePool
 from typing import Optional, Dict, List, Any, Tuple
 
+_DEFAULT_DB = object()
+
 class DatabaseManager:
-    def __init__(self):
-        self.db_url = get_db_url()
+    def __init__(self, specific_db: Optional[str] | object = _DEFAULT_DB):
+        if specific_db is _DEFAULT_DB:
+            self.specific_db = None
+            self.db_url = self._build_db_url(None, use_default_db=True)
+        else:
+            self.specific_db = specific_db
+            self.db_url = self._build_db_url(specific_db, use_default_db=False)
+
         self.engine = create_engine(
             self.db_url,
             poolclass=QueuePool,
@@ -14,6 +22,11 @@ class DatabaseManager:
             max_overflow=10,
             pool_recycle=3600
         )
+
+    def _build_db_url(
+        self, db_name: Optional[str], use_default_db: bool = True
+    ) -> str:
+        return get_db_url(db_name=db_name, use_default_db=use_default_db)
         
     def get_connection(self):
         """获取原始数据库连接"""
@@ -69,6 +82,62 @@ class DatabaseManager:
         """获取所有表名"""
         inspector = inspect(self.engine)
         return inspector.get_table_names()
+
+    def get_all_databases(self, exclude_system: bool = True) -> List[str]:
+        """获取所有数据库名称"""
+        with self.get_connection() as conn:
+            result = conn.execute(text("SHOW DATABASES"))
+            databases = [row[0] for row in result.fetchall()]
+
+        if not exclude_system:
+            return databases
+
+        system_dbs = {"information_schema", "mysql", "performance_schema", "sys"}
+        return [db_name for db_name in databases if db_name not in system_dbs]
+
+    def get_tables_in_database(self, db_name: str) -> List[str]:
+        """获取指定数据库中的表名"""
+        sql = text(
+            """
+            SELECT TABLE_NAME
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = :db_name
+            """
+        )
+        with self.get_connection() as conn:
+            result = conn.execute(sql, {"db_name": db_name})
+            return [row[0] for row in result.fetchall()]
+
+    def check_tables_structure_match(self, db1: str, db2: str) -> bool:
+        """比较两个数据库的表结构是否一致"""
+        tables_db1 = set(self.get_tables_in_database(db1))
+        tables_db2 = set(self.get_tables_in_database(db2))
+
+        if tables_db1 != tables_db2:
+            return False
+
+        for table_name in tables_db1:
+            columns_db1 = self._get_table_columns(db1, table_name)
+            columns_db2 = self._get_table_columns(db2, table_name)
+            if columns_db1 != columns_db2:
+                return False
+
+        return True
+
+    def _get_table_columns(self, db_name: str, table_name: str) -> List[Tuple[str, str]]:
+        sql = text(
+            """
+            SELECT COLUMN_NAME, COLUMN_TYPE
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = :db_name AND TABLE_NAME = :table_name
+            ORDER BY ORDINAL_POSITION
+            """
+        )
+        with self.get_connection() as conn:
+            result = conn.execute(
+                sql, {"db_name": db_name, "table_name": table_name}
+            )
+            return [(row[0], row[1]) for row in result.fetchall()]
 
     def get_table_schema(self, table_name, schema=None):
         """获取表结构信息"""
