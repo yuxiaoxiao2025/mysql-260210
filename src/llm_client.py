@@ -200,6 +200,9 @@ JSON Object:
         Returns:
             RetrievalAgent instance if available, None otherwise.
         """
+        if os.getenv("DISABLE_RETRIEVAL") == "1":
+            logger.info("Retrieval enhancement disabled by environment flag.")
+            return None
         if self.retrieval_agent is None:
             try:
                 from src.metadata.retrieval_agent import RetrievalAgent

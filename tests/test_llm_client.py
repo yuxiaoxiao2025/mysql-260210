@@ -139,6 +139,7 @@ if __name__ == '__main__':
 class TestLLMClientConversationHistory:
     """测试对话历史管理"""
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     def test_add_to_history_success(self):
         """测试添加成功的查询到历史"""
@@ -153,6 +154,7 @@ class TestLLMClientConversationHistory:
         assert client.conversation_history[0][0] == "查询所有用户"
         assert client.conversation_history[0][1]['sql'] == 'SELECT * FROM users'
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     def test_add_to_history_max_rounds(self):
         """测试历史记录最大轮数限制"""
@@ -172,6 +174,7 @@ class TestLLMClientConversationHistory:
         assert client.conversation_history[1][0] == "查询3"
         assert client.conversation_history[2][0] == "查询4"
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     def test_clear_history(self):
         """测试清除历史"""
@@ -185,6 +188,7 @@ class TestLLMClientConversationHistory:
 
         assert len(client.conversation_history) == 0
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     def test_add_error_to_history(self):
         """测试添加错误到历史"""
@@ -196,6 +200,7 @@ class TestLLMClientConversationHistory:
         assert client.conversation_history[0][1]['error'] == "SQL 语法错误"
         assert client.conversation_history[0][1]['success'] is False
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     def test_add_error_to_history_max_rounds(self):
         """测试错误历史的最大轮数限制"""
@@ -215,6 +220,7 @@ class TestLLMClientConversationHistory:
 class TestLLMClientRecognizeIntent:
     """测试意图识别功能"""
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     @patch("dashscope.Generation.call")
     def test_recognize_intent_success(self, mock_call):
@@ -251,6 +257,7 @@ class TestLLMClientRecognizeIntent:
         assert result['params']['park_name'] == "国际商务中心"
         assert result['missing_params'] == []
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     @patch("dashscope.Generation.call")
     def test_recognize_intent_with_missing_params(self, mock_call):
@@ -282,6 +289,7 @@ class TestLLMClientRecognizeIntent:
         assert result['missing_params'] == ["park_name"]
         assert len(result['suggestions']) > 0
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     @patch("dashscope.Generation.call")
     def test_recognize_intent_no_match(self, mock_call):
@@ -312,6 +320,7 @@ class TestLLMClientRecognizeIntent:
         assert result['confidence'] == 0.0
         assert result['fallback_sql'] == "SELECT * FROM plates"
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     @patch("dashscope.Generation.call")
     def test_recognize_intent_json_decode_error(self, mock_call):
@@ -338,6 +347,7 @@ class TestLLMClientRecognizeIntent:
         assert "解析响应失败" in result['reasoning'] or "JSON" in result['reasoning']
         assert len(result['suggestions']) > 0
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     @patch("dashscope.Generation.call")
     def test_recognize_intent_api_error(self, mock_call):
@@ -359,6 +369,7 @@ class TestLLMClientRecognizeIntent:
 
         assert "API Error" in str(context.value) or "意图识别失败" in str(context.value)
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     @patch("dashscope.Generation.call")
     def test_recognize_intent_with_enum_values(self, mock_call):
@@ -400,6 +411,7 @@ class TestLLMClientRecognizeIntent:
 class TestLLMClientSuggestParamValue:
     """测试参数值推荐功能"""
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     def test_suggest_param_value_with_list(self):
         """测试从列表推荐参数值"""
@@ -418,6 +430,7 @@ class TestLLMClientSuggestParamValue:
         assert len(result['suggestions']) == 5
         assert result['best_match'] == "国际商务中心"
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     def test_suggest_param_value_with_dict_list(self):
         """测试从字典列表推荐参数值"""
@@ -439,6 +452,7 @@ class TestLLMClientSuggestParamValue:
         assert result['suggestions'][0]['display'] == "国际商务中心"
         assert result['best_match'] == "park1"
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     def test_suggest_param_value_empty_list(self):
         """测试空列表的情况"""
@@ -453,6 +467,7 @@ class TestLLMClientSuggestParamValue:
         assert result['suggestions'] == []
         assert result['best_match'] is None
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     def test_suggest_param_value_large_list(self):
         """测试大列表的情况（应该只返回前5个）"""
@@ -472,6 +487,7 @@ class TestLLMClientSuggestParamValue:
 class TestLLMClientGenerateSQLWithHistory:
     """测试带历史记录的 SQL 生成"""
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     @patch("dashscope.Generation.call")
     def test_generate_sql_with_conversation_history(self, mock_call):
@@ -515,6 +531,7 @@ class TestLLMClientGenerateSQLWithHistory:
         assert result2['sql'] == "SELECT * FROM users WHERE status = 'inactive'"
         assert len(client.conversation_history) == 2
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     @patch("dashscope.Generation.call")
     def test_generate_sql_with_error_context(self, mock_call):
@@ -542,6 +559,7 @@ class TestLLMClientGenerateSQLWithHistory:
         assert 'name' in result['sql']
         assert 'email' in result['sql']
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     def test_generate_sql_without_api_key(self):
         """测试没有 API Key 的情况"""
@@ -565,6 +583,7 @@ class TestLLMClientGenerateSQLWithHistory:
 class TestLLMClientLastResult:
     """测试最后结果存储"""
 
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
     @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
     @patch("dashscope.Generation.call")
     def test_last_result_stored(self, mock_call):

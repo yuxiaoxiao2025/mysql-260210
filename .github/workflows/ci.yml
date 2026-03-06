@@ -28,6 +28,7 @@ jobs:
       DB_HOST: 127.0.0.1
       DB_PORT: 3306
       DB_NAME: test
+      DISABLE_RETRIEVAL: 0
     steps:
       - uses: actions/checkout@v4
 
