@@ -1,12 +1,34 @@
 from sqlalchemy import create_engine, text, inspect
 import pandas as pd
-from src.config import get_db_url
+import os
+from dotenv import load_dotenv
 from sqlalchemy.pool import QueuePool
 from typing import Optional, Dict, List, Any, Tuple
 
+# Load environment variables
+load_dotenv()
+
+
 class DatabaseManager:
-    def __init__(self):
-        self.db_url = get_db_url()
+    """数据库管理器，支持单库和跨库查询"""
+
+    # 系统数据库（自动排除）
+    SYSTEM_DATABASES = frozenset([
+        "information_schema",
+        "mysql",
+        "performance_schema",
+        "sys"
+    ])
+
+    def __init__(self, specific_db: Optional[str] = None):
+        """
+        初始化数据库管理器
+
+        Args:
+            specific_db: 指定连接的数据库，None 表示不指定（可跨库查询）
+        """
+        self.specific_db = specific_db
+        self.db_url = self._build_db_url(specific_db)
         self.engine = create_engine(
             self.db_url,
             poolclass=QueuePool,
@@ -14,6 +36,27 @@ class DatabaseManager:
             max_overflow=10,
             pool_recycle=3600
         )
+
+    def _build_db_url(self, db_name: Optional[str] = None) -> str:
+        """
+        构建数据库连接 URL
+
+        Args:
+            db_name: 数据库名，None 表示不指定数据库
+
+        Returns:
+            数据库连接 URL
+        """
+        db_user = os.getenv('DB_USER', 'root')
+        db_password = os.getenv('DB_PASSWORD', '')
+        db_host = os.getenv('DB_HOST', 'localhost')
+        db_port = os.getenv('DB_PORT', '3306')
+
+        base_url = f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/"
+
+        if db_name:
+            return base_url + db_name
+        return base_url  # 不指定数据库，支持跨库查询
         
     def get_connection(self):
         """获取原始数据库连接"""
@@ -259,3 +302,158 @@ class DatabaseManager:
                     "affected_rows": affected_rows,
                     "committed": False
                 }
+
+    # ==================== 跨库查询方法 ====================
+
+    def get_all_databases(self, exclude_system: bool = True) -> List[str]:
+        """
+        获取所有数据库列表
+
+        Args:
+            exclude_system: 是否排除系统数据库
+                - True: 排除 information_schema, mysql, performance_schema, sys
+                - False: 包含所有数据库
+
+        Returns:
+            数据库名称列表
+
+        Example:
+            >>> db = DatabaseManager(specific_db=None)
+            >>> databases = db.get_all_databases(exclude_system=True)
+            ['parkcloud', 'db_parking_center', 'cloudinterface', 'p210113175340', ...]
+        """
+        with self.get_connection() as conn:
+            result = conn.execute(text("SHOW DATABASES"))
+            databases = [row[0] for row in result.fetchall()]
+
+        if exclude_system:
+            databases = [db for db in databases if db not in self.SYSTEM_DATABASES]
+
+        return sorted(databases)
+
+    def get_tables_in_database(self, db_name: str) -> List[str]:
+        """
+        获取指定数据库的所有表名
+
+        Args:
+            db_name: 数据库名
+
+        Returns:
+            表名列表
+
+        Example:
+            >>> db = DatabaseManager(specific_db=None)
+            >>> tables = db.get_tables_in_database("parkcloud")
+            ['cloud_fixed_plate', 'cloud_operator', 'cloud_park_info', ...]
+        """
+        sql = """
+            SELECT TABLE_NAME
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = :db_name
+            AND TABLE_TYPE = 'BASE TABLE'
+            ORDER BY TABLE_NAME
+        """
+        with self.get_connection() as conn:
+            result = conn.execute(text(sql), {"db_name": db_name})
+            return [row[0] for row in result.fetchall()]
+
+    def get_table_schema_cross_db(self, db_name: str, table_name: str) -> List[Dict[str, Any]]:
+        """
+        跨库获取表结构信息
+
+        Args:
+            db_name: 数据库名
+            table_name: 表名
+
+        Returns:
+            列信息列表，每个元素包含 name, type, comment
+
+        Example:
+            >>> db = DatabaseManager(specific_db=None)
+            >>> columns = db.get_table_schema_cross_db("parkcloud", "cloud_fixed_plate")
+            [{'name': 'id', 'type': 'bigint', 'comment': '主键ID'}, ...]
+        """
+        sql = """
+            SELECT
+                COLUMN_NAME,
+                COLUMN_TYPE,
+                COLUMN_COMMENT
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = :db_name
+                AND TABLE_NAME = :table_name
+            ORDER BY ORDINAL_POSITION
+        """
+        with self.get_connection() as conn:
+            result = conn.execute(text(sql), {"db_name": db_name, "table_name": table_name})
+            columns = []
+            for row in result.fetchall():
+                columns.append({
+                    "name": row[0],
+                    "type": row[1],
+                    "comment": row[2] or ""
+                })
+            return columns
+
+    def check_tables_structure_match(self, db1: str, db2: str) -> bool:
+        """
+        检查两个数据库的表结构是否相同
+
+        用于验证园区库是否可以复用模板。
+
+        Args:
+            db1: 第一个数据库名
+            db2: 第二个数据库名
+
+        Returns:
+            True 如果表结构完全相同，False 否则
+
+        Example:
+            >>> db = DatabaseManager(specific_db=None)
+            >>> # 检查两个园区库结构是否相同
+            >>> db.check_tables_structure_match("p210113175340", "p210121185450")
+            True
+        """
+        # 1. 获取两个库的表列表
+        tables1 = set(self.get_tables_in_database(db1))
+        tables2 = set(self.get_tables_in_database(db2))
+
+        # 2. 检查表数量和名称
+        if tables1 != tables2:
+            return False
+
+        # 3. 检查每个表的列结构
+        for table_name in tables1:
+            schema1 = self.get_table_schema_cross_db(db1, table_name)
+            schema2 = self.get_table_schema_cross_db(db2, table_name)
+
+            # 比较列数量
+            if len(schema1) != len(schema2):
+                return False
+
+            # 比较每列的名称和类型
+            for col1, col2 in zip(schema1, schema2):
+                if col1["name"] != col2["name"]:
+                    return False
+                if col1["type"].lower() != col2["type"].lower():
+                    return False
+
+        return True
+
+    def get_database_table_counts(self) -> Dict[str, int]:
+        """
+        获取所有数据库的表数量统计
+
+        Returns:
+            字典 {数据库名: 表数量}
+
+        Example:
+            >>> db = DatabaseManager(specific_db=None)
+            >>> counts = db.get_database_table_counts()
+            {'parkcloud': 145, 'db_parking_center': 56, 'cloudinterface': 9, ...}
+        """
+        databases = self.get_all_databases(exclude_system=True)
+        counts = {}
+        for db_name in databases:
+            tables = self.get_tables_in_database(db_name)
+            counts[db_name] = len(tables)
+        return counts
