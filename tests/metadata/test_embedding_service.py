@@ -56,6 +56,38 @@ class TestEmbeddingService:
                     assert len(result) == 1024
                     assert all(v == 0.1 for v in result)
 
+    def test_embed_text_uses_query_text_type_and_instruct(self, monkeypatch):
+        """Test embed_text passes text_type and instruct to API."""
+        calls = {}
+
+        def fake_call(**kwargs):
+            calls.update(kwargs)
+            return type(
+                "Resp",
+                (),
+                {
+                    "status_code": 200,
+                    "output": {"embeddings": [{"embedding": [0.0] * 1024}]},
+                },
+            )()
+
+        monkeypatch.setattr(
+            "src.metadata.embedding_service.TextEmbedding.call",
+            fake_call,
+        )
+
+        with patch.dict(os.environ, {"DASHSCOPE_API_KEY": "test_key"}):
+            with patch("src.metadata.embedding_service.dashscope"):
+                service = EmbeddingService(model="text-embedding-v4", dimension=1024)
+                service.embed_text(
+                    "查询车牌",
+                    text_type="query",
+                    instruct="Given a DB query, retrieve schema",
+                )
+
+        assert calls["text_type"] == "query"
+        assert calls["instruct"] == "Given a DB query, retrieve schema"
+
     def test_embed_text_empty_raises_error(self):
         """Test embed_text raises error for empty text."""
         with patch.dict(os.environ, {"DASHSCOPE_API_KEY": "test_key"}):

@@ -93,6 +93,32 @@ class TestGraphStore:
             assert len(call_args[1]["embeddings"]) == 1
             assert len(call_args[1]["embeddings"][0]) == 1024
 
+    def test_add_table_stores_semantic_description(self, temp_data_dir, mock_chroma_client):
+        """Test add_table stores semantic enrichment metadata."""
+        mock_client, mock_table, mock_field = mock_chroma_client
+
+        with patch("src.metadata.graph_store.chromadb.PersistentClient") as mock_chromadb:
+            mock_chromadb.return_value = mock_client
+
+            store = GraphStore(env="test")
+            table = TableMetadata(
+                table_name="users",
+                database_name="mydb",
+                comment="User table",
+                business_domain="用户",
+                semantic_description="业务语义",
+                semantic_source="llm",
+                semantic_confidence=0.9,
+                semantic_tags=["标签"],
+            )
+            embedding = [0.1] * 1024
+
+            store.add_table(table, embedding)
+
+            call_args = mock_table.upsert.call_args
+            metadata = call_args[1]["metadatas"][0]
+            assert metadata["semantic_description"] == "业务语义"
+
     def test_add_table_wrong_dimension_raises_error(self, temp_data_dir, mock_chroma_client):
         """Test add_table raises error for wrong embedding dimension."""
         mock_client, mock_table, mock_field = mock_chroma_client

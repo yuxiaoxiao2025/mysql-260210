@@ -73,12 +73,19 @@ class EmbeddingService:
         retry=retry_if_exception_type(EmbeddingAPIError),
         reraise=True
     )
-    def embed_text(self, text: str) -> List[float]:
+    def embed_text(
+        self,
+        text: str,
+        text_type: str = "document",
+        instruct: str | None = None,
+    ) -> List[float]:
         """
         Generate embedding for a single text.
 
         Args:
             text: Text to embed
+            text_type: Embedding text type (document or query)
+            instruct: Optional instruction for query embedding
 
         Returns:
             List of floats representing the embedding vector (1024 dimensions)
@@ -92,11 +99,16 @@ class EmbeddingService:
         logger.debug(f"Generating embedding for text (length={len(text)})")
 
         try:
-            response = TextEmbedding.call(
-                model=self.model,
-                input=text,
-                dimension=self.dimension
-            )
+            payload = {
+                "model": self.model,
+                "input": text,
+                "dimension": self.dimension,
+                "text_type": text_type,
+            }
+            if instruct:
+                payload["instruct"] = instruct
+
+            response = TextEmbedding.call(**payload)
 
             if response.status_code == 200:
                 embedding = response.output['embeddings'][0]['embedding']

@@ -163,6 +163,23 @@ class TestTableMetadata:
         assert table.schema_text == "Table: users"
         assert "用户" in table.tags
 
+    def test_table_metadata_accepts_semantic_fields(self):
+        """Test TableMetadata accepts semantic enrichment fields."""
+        table = TableMetadata(
+            table_name="t",
+            comment="",
+            semantic_description="业务语义",
+            semantic_tags=["标签"],
+            semantic_source="llm",
+            semantic_confidence=0.9,
+            columns=[],
+        )
+
+        assert table.semantic_description == "业务语义"
+        assert table.semantic_tags == ["标签"]
+        assert table.semantic_source == "llm"
+        assert table.semantic_confidence == 0.9
+
     def test_get_column_existing(self):
         """Test get_column for existing column."""
         columns = [

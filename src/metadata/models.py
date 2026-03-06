@@ -59,6 +59,10 @@ class TableMetadata(BaseModel):
         database_name: Name of the database containing this table.
         namespace: Namespace identifier (typically database_name).
         comment: Table description/comment from database.
+        semantic_description: Semantic enrichment for the table.
+        semantic_tags: Semantic tags derived from enrichment.
+        semantic_source: Source for semantic enrichment (comment | rule | llm).
+        semantic_confidence: Confidence score for semantic enrichment.
         columns: List of column metadata for this table.
         foreign_keys: List of foreign key relationships from this table.
         business_domain: Business category for this table (e.g., '车辆管理', '场库管理').
@@ -73,6 +77,10 @@ class TableMetadata(BaseModel):
     database_name: str = ""
     namespace: str = ""  # 命名空间标识 (通常是 database_name)
     comment: str = ""
+    semantic_description: str | None = None
+    semantic_tags: list[str] = Field(default_factory=list)
+    semantic_source: str | None = None
+    semantic_confidence: float | None = None
     columns: List[ColumnMetadata] = Field(default_factory=list)
     foreign_keys: List[ForeignKeyRelation] = Field(default_factory=list)
     business_domain: str = "其他"
