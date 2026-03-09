@@ -14,3 +14,4 @@ uvicorn
 httpx
 tenacity
 chromadb~=1.5.2
+rich>=13.0.0
