@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from src.metadata.retrieval_models import TableRetrievalResult
 
 from src.context import SlotTracker, QueryRewriter
-from src.constraint.table_validator import TableValidator
+from src.constraint import TableValidator
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +29,10 @@ class LLMClient:
 
         # Table validation
         self.table_validator: Optional[TableValidator] = None
+        self._user_provided_tables: Optional[list[str]] = None
         if allowed_tables:
             self.table_validator = TableValidator(allowed_tables)
+            self._user_provided_tables = allowed_tables.copy()
 
         if not self.api_key:
             logger.warning("DASHSCOPE_API_KEY not found in environment variables.")
@@ -38,7 +40,7 @@ class LLMClient:
         else:
             dashscope.api_key = self.api_key
 
-    def generate_sql(self, user_query, schema_context, error_context=None, context: Optional[dict[str, str]] = None):
+    def generate_sql(self, user_query: str, schema_context: str, error_context: Optional[str] = None, context: Optional[dict[str, str]] = None) -> dict[str, Any]:
         """
         Translate NL to SQL.
 
@@ -69,9 +71,10 @@ class LLMClient:
             logger.info(f"Query rewritten: '{user_query}' -> '{rewritten_query}'")
 
         # Step 3: Get allowed tables from retrieval pipeline for validation
+        # Only use retrieval tables if user didn't provide explicit allowed_tables
         allowed_tables_from_retrieval = self._get_allowed_tables_from_retrieval()
-        if allowed_tables_from_retrieval and not self.table_validator:
-            # Auto-create validator if retrieval provides tables but no validator exists
+        if allowed_tables_from_retrieval and not self._user_provided_tables:
+            # Auto-create validator if retrieval provides tables and no user-provided tables exist
             self.table_validator = TableValidator(allowed_tables_from_retrieval)
             logger.debug(f"Auto-created TableValidator with {len(allowed_tables_from_retrieval)} tables from retrieval")
 
