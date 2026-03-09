@@ -39,9 +39,13 @@ class CLIPreview:
         for column in df.columns:
             table.add_column(str(column), overflow="fold")
 
-        # Add rows
-        for _, row in df.iterrows():
-            row_values = [str(value) for value in row]
+        # Add rows using itertuples for better performance
+        for row in df.itertuples(index=False):
+            row_values = [
+                "" if value is None or (isinstance(value, float) and pd.isna(value))
+                else str(value)
+                for value in row
+            ]
             table.add_row(*row_values)
 
         return table
