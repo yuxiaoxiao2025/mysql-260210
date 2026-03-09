@@ -1,0 +1,21 @@
+=== tb_outpark_infos 字段列表 ===
+
+id                        id
+record_id                 订单id
+park_id                   场库id
+plate                     车牌号
+in_passage_id             入场通道id
+in_time                   
+in_image                  入场图片
+out_passage_id            出场通道id
+out_time                  
+out_image                 出场图片
+charge                    金额
+onLine_charge             线上支付金额
+offLine_charge            线下支付金额
+charge_kind_id            支付类型id
+car_kind_id               车类型id
+memo                      备注
+operator_id               操作员id
+editflag                  
+upload_flag               上传标志

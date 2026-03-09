@@ -1,0 +1,17 @@
+=== tb_outpark_infos (should match) ===
+Table: tb_outpark_infos
+Comment: 出场记录表
+schema_text: 表名：tb_outpark_infos。描述：出场记录表。关键字段：id(主键)。业务域：停车
+Database: p210113175340
+
+=== cloud_fixed_plate_park (wrong match) ===
+Table: cloud_fixed_plate_park
+Comment: 固定车-场库关联表
+schema_text: 表名：cloud_fixed_plate_park。描述：固定车-场库关联表。关键字段：id(主键)。业务域：车辆
+Database: parkcloud
+
+=== cloud_fixed_plate (the main plate table) ===
+Table: cloud_fixed_plate
+Comment: 固定车牌表
+schema_text: 表名：cloud_fixed_plate。描述：固定车牌表。关键字段：id(主键)。业务域：车辆
+Database: parkcloud
