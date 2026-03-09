@@ -191,7 +191,7 @@ class TestQueryLogger:
         """Test that default log file is used."""
         logger = QueryLogger()
         assert logger.log_file is not None
-        assert isinstance(logger.log_file, (str, Path))
+        assert isinstance(logger.log_file, Path)
 
     def test_log_directory_creation(self):
         """Test that log directory is created if it doesn't exist."""

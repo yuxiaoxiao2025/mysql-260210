@@ -5,11 +5,14 @@ for analysis and system improvement.
 """
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional, Union
 
 from src.feedback.intent_parser import FeedbackIntent
+
+logger = logging.getLogger(__name__)
 
 
 class QueryLogger:
@@ -76,8 +79,12 @@ class QueryLogger:
             entry["feedback_content"] = feedback.content
 
         # Append to log file
-        with open(self.log_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        try:
+            with open(self.log_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except (IOError, OSError) as e:
+            logger.error(f"Failed to write log entry: {e}")
+            raise
 
     def get_logs(self, limit: Optional[int] = None) -> list[dict[str, Any]]:
         """Retrieve logged entries.
@@ -97,11 +104,18 @@ class QueryLogger:
             return []
 
         entries = []
-        with open(self.log_file, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    entries.append(json.loads(line))
+        try:
+            with open(self.log_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            entries.append(json.loads(line))
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"Skipping malformed log line: {e}")
+        except (IOError, OSError) as e:
+            logger.error(f"Failed to read log file: {e}")
+            raise
 
         # Return most recent first if limit specified
         if limit is not None:
