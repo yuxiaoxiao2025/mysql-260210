@@ -11,7 +11,7 @@ class QueryRewriter:
         (re.compile(r"这台车"), "plate"),
         (re.compile(r"那辆车"), "plate"),
         (re.compile(r"那台车"), "plate"),
-        (re.compile(r"它"), "plate"),
+        (re.compile(r"(?<![a-zA-Z0-9])它(?![a-zA-Z0-9])"), "plate"),
         (re.compile(r"该车"), "plate"),
     ]
 

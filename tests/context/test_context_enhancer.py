@@ -76,3 +76,5 @@ class TestQueryRewriter:
         context = {"plate": "沪BAB1565"}
         new_query = rewriter.rewrite("这辆车和它的记录", context)
         assert "沪BAB1565" in new_query
+        assert "这辆车" not in new_query
+        assert "它" not in new_query
