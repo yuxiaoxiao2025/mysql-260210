@@ -1,2 +1,5 @@
-# Constraint management module
-__all__: list[str] = []
+"""Constraint management module."""
+
+from .table_validator import TableValidator
+
+__all__ = ["TableValidator"]

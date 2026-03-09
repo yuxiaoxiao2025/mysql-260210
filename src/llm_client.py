@@ -9,25 +9,45 @@ if TYPE_CHECKING:
     from src.metadata.retrieval_agent import RetrievalAgent
     from src.metadata.retrieval_models import TableRetrievalResult
 
+from src.context import SlotTracker, QueryRewriter
+from src.constraint.table_validator import TableValidator
+
 logger = logging.getLogger(__name__)
 
 
 class LLMClient:
-    def __init__(self):
+    def __init__(self, allowed_tables: Optional[list[str]] = None):
         self.api_key = os.getenv("DASHSCOPE_API_KEY")
         self.last_result = None  # Store last result for transaction preview
         self.conversation_history = []  # Store conversation history (max 5 rounds)
         self.max_history_rounds = 5  # Maximum number of conversation rounds to keep
         self.retrieval_agent: Optional["RetrievalAgent"] = None  # Lazy load
+
+        # Context enhancement components
+        self.slot_tracker = SlotTracker()
+        self.query_rewriter = QueryRewriter()
+
+        # Table validation
+        self.table_validator: Optional[TableValidator] = None
+        if allowed_tables:
+            self.table_validator = TableValidator(allowed_tables)
+
         if not self.api_key:
             logger.warning("DASHSCOPE_API_KEY not found in environment variables.")
             print("⚠️  Warning: DASHSCOPE_API_KEY not found in environment variables.")
         else:
             dashscope.api_key = self.api_key
 
-    def generate_sql(self, user_query, schema_context, error_context=None):
+    def generate_sql(self, user_query, schema_context, error_context=None, context: Optional[dict[str, str]] = None):
         """
         Translate NL to SQL.
+
+        Args:
+            user_query: The natural language query from the user.
+            schema_context: Database schema information for SQL generation.
+            error_context: Optional error message from a previous attempt.
+            context: Optional context dictionary for query enhancement (e.g., {"plate": "沪A12345"}).
+
         Returns a dict: {
             "sql": "SELECT ...",
             "filename": "suggested_filename",
@@ -39,6 +59,22 @@ class LLMClient:
             "warnings": ["warning1", "warning2"]
         }
         """
+        # Step 1: Extract slots from query and merge with provided context
+        extracted_slots = self.slot_tracker.extract(user_query)
+        merged_context = {**(context or {}), **extracted_slots}
+
+        # Step 2: Rewrite query using context (pronoun substitution)
+        rewritten_query = self.query_rewriter.rewrite(user_query, merged_context)
+        if rewritten_query != user_query:
+            logger.info(f"Query rewritten: '{user_query}' -> '{rewritten_query}'")
+
+        # Step 3: Get allowed tables from retrieval pipeline for validation
+        allowed_tables_from_retrieval = self._get_allowed_tables_from_retrieval()
+        if allowed_tables_from_retrieval and not self.table_validator:
+            # Auto-create validator if retrieval provides tables but no validator exists
+            self.table_validator = TableValidator(allowed_tables_from_retrieval)
+            logger.debug(f"Auto-created TableValidator with {len(allowed_tables_from_retrieval)} tables from retrieval")
+
         # Build conversation history context
         history_context = ""
         if self.conversation_history:
@@ -61,7 +97,7 @@ class LLMClient:
         pipeline = self._get_retrieval_pipeline()
         if pipeline:
             try:
-                result = pipeline.search(user_query, top_k=5)
+                result = pipeline.search(rewritten_query, top_k=5)
                 # Add retrieved tables to schema_context
                 retrieval_context = "\n" + self._build_retrieval_context(result)
                 logger.debug(
@@ -78,7 +114,7 @@ class LLMClient:
                 try:
                     from src.metadata.retrieval_models import RetrievalRequest, RetrievalLevel
                     result = agent.search(RetrievalRequest(
-                        query=user_query,
+                        query=rewritten_query,
                         level=RetrievalLevel.TABLE,
                         top_k=5
                     ))
@@ -125,12 +161,12 @@ Return ONLY a JSON object with the following keys:
    - `warnings`: For mutations - list of impact warnings (optional)
 
 ### User Query
-{user_query}
+{rewritten_query}
 
 ### Output
 JSON Object:
 """
-        
+
         try:
             # Use qwen-plus as requested
             response = Generation.call(
@@ -156,11 +192,32 @@ JSON Object:
                 result.setdefault('preview_sql', None)
                 result.setdefault('key_columns', [])
                 result.setdefault('warnings', [])
+
+                # Step 4: Validate SQL tables against allowed list
+                sql = result.get('sql', '')
+                if sql and self.table_validator:
+                    is_valid, error_msg = self.table_validator.validate(sql)
+                    if not is_valid:
+                        logger.warning(f"Table validation failed: {error_msg}")
+                        # Add validation error to warnings
+                        result['warnings'].append(f"Table validation: {error_msg}")
+                        # Return error result instead of invalid SQL
+                        return {
+                            'sql': None,
+                            'filename': None,
+                            'sheet_name': None,
+                            'reasoning': f"Generated SQL contains unauthorized tables: {error_msg}",
+                            'intent': 'error',
+                            'preview_sql': None,
+                            'key_columns': [],
+                            'warnings': [f"Table validation failed: {error_msg}"]
+                        }
+
                 self.last_result = result  # Store for transaction preview
-                
-                # Add to conversation history
+
+                # Add to conversation history (use original user_query for history)
                 self._add_to_history(user_query, result)
-                
+
                 return result
             else:
                 raise Exception(f"API Error: {response.code} - {response.message}")
@@ -267,6 +324,42 @@ JSON Object:
                 f"- {match.table_name}: {match.description} (score: {match.similarity_score:.2f})"
             )
         return "\n".join(lines)
+
+    def _get_allowed_tables_from_retrieval(self) -> Optional[list[str]]:
+        """
+        Get allowed table names from retrieval pipeline or agent.
+
+        Returns:
+            List of table names if retrieval is available, None otherwise.
+        """
+        # Try pipeline first
+        pipeline = self._get_retrieval_pipeline()
+        if pipeline:
+            try:
+                # Try to get tables from pipeline's graph store or index
+                if hasattr(pipeline, 'graph_store') and pipeline.graph_store:
+                    tables = list(pipeline.graph_store._nodes.keys())
+                    if tables:
+                        return tables
+                # Try to get from indexer if available
+                if hasattr(pipeline, 'indexer') and pipeline.indexer:
+                    if hasattr(pipeline.indexer, 'get_all_tables'):
+                        return pipeline.indexer.get_all_tables()
+            except Exception as e:
+                logger.debug(f"Failed to get tables from pipeline: {e}")
+
+        # Fall back to agent
+        agent = self._get_retrieval_agent()
+        if agent and agent.graph:
+            try:
+                # Get all table nodes from the graph
+                tables = [node_id for node_id in agent.graph.nodes if node_id.startswith('table:')]
+                # Remove prefix
+                return [t.replace('table:', '') for t in tables]
+            except Exception as e:
+                logger.debug(f"Failed to get tables from agent: {e}")
+
+        return None
 
     def recognize_intent(self, user_query: str, operations_context: str,
                          enum_values: Optional[Dict[str, list]] = None) -> Dict[str, Any]:
