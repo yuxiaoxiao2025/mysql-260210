@@ -41,6 +41,10 @@ from src.knowledge import KnowledgeLoader
 from src.intent import IntentRecognizer
 from src.executor import OperationExecutor
 from src.monitoring import MetricsCollector, AlertManager, setup_structured_logging, LogNotifier
+from src.context import SlotTracker, QueryRewriter
+from src.cli.preview import CLIPreview
+from src.cli.interaction import Interaction
+from src.feedback.intent_parser import FeedbackParser
 
 def print_welcome():
     print("=" * 60)
@@ -104,6 +108,16 @@ def main():
         )
         logger.info("监控系统初始化成功")
         print("[OK] 监控系统初始化成功！")
+
+        # 初始化智能检索增强组件
+        print("正在初始化智能检索增强组件...")
+        slot_tracker = SlotTracker()
+        query_rewriter = QueryRewriter()
+        cli_preview = CLIPreview()
+        interaction = Interaction()
+        feedback_parser = FeedbackParser()
+        logger.info("智能检索增强组件初始化成功")
+        print("[OK] 智能检索增强组件初始化成功！")
 
     except Exception as e:
         logger.error(f"初始化失败: {e}")
@@ -385,17 +399,70 @@ def main():
                         continue
 
                     print("🧠 正在思考您的需求...")
+
+                    # 使用 SlotTracker 提取槽位
+                    extracted_slots = slot_tracker.extract(user_input)
+                    if extracted_slots:
+                        print(f"📋 提取的槽位: {extracted_slots}")
+
+                    # 使用 QueryRewriter 重写查询（替换代词）
+                    rewritten_query = query_rewriter.rewrite(user_input, extracted_slots)
+                    if rewritten_query != user_input:
+                        print(f"🔄 查询重写: '{user_input}' -> '{rewritten_query}'")
+
                     try:
-                        result = llm.generate_sql(user_input, schema_context)
+                        # 调用 LLMClient.generate_sql 并传入上下文
+                        result = llm.generate_sql(
+                            user_query=user_input,
+                            schema_context=schema_context,
+                            context=extracted_slots
+                        )
+
+                        # 检查是否有验证错误
+                        if result.get('intent') == 'error':
+                            print(f"❌ {result.get('reasoning', '查询生成失败')}")
+                            if result.get('warnings'):
+                                for warning in result['warnings']:
+                                    print(f"   ⚠️ {warning}")
+                            continue
+
                         print("-" * 30)
                         print(f"🤖 生成的 SQL:\n{result['sql']}")
                         print(f"💡 思考过程: {result.get('reasoning', '无')}")
+                        if result.get('warnings'):
+                            print(f"⚠️ 警告:")
+                            for warning in result['warnings']:
+                                print(f"   - {warning}")
                         print("-" * 30)
 
-                        confirm = input("❓ 是否执行此查询？(y/n) > ")
-                        if confirm.lower() != 'y':
-                            continue
+                        # 使用 FeedbackParser 处理用户反馈
+                        feedback_input = interaction.ask_feedback("❓ 是否执行此查询？(y/n/纠正) > ")
+                        feedback = feedback_parser.parse(feedback_input)
 
+                        if feedback.type == "reject":
+                            print("❌ 操作已取消")
+                            continue
+                        elif feedback.type == "correction":
+                            # 使用纠正后的查询重新执行
+                            corrected_query = feedback.content
+                            print(f"🔄 使用纠正后的查询: '{corrected_query}'")
+                            try:
+                                result = llm.generate_sql(
+                                    user_query=corrected_query,
+                                    schema_context=schema_context,
+                                    error_context=f"Previous query was: {user_input}. User correction: {corrected_query}",
+                                    context=extracted_slots
+                                )
+                                if result.get('intent') == 'error':
+                                    print(f"❌ {result.get('reasoning', '查询生成失败')}")
+                                    continue
+                                print(f"🤖 新生成的 SQL:\n{result['sql']}")
+                            except Exception as e:
+                                print(f"❌ 纠正查询生成失败: {e}")
+                                llm.add_error_to_history(corrected_query, str(e))
+                                continue
+
+                        # confirm 或其他情况继续执行
                         sql_to_execute = result['sql']
                         base_filename = result.get('filename', 'query_result')
                         export_sheet_name = result.get('sheet_name', 'Sheet1')
@@ -441,6 +508,9 @@ def main():
                         print(f"⚠️  检测到 {len(alerts)} 条告警，请查看日志详情")
 
                 if not df.empty:
+                    # 使用 CLIPreview 显示结果
+                    cli_preview.show(df, title="查询结果预览")
+
                     if not base_filename:
                         filename_part = "query_result"
                         tokens = sql_to_execute.lower().split()
