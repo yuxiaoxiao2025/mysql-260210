@@ -13,4 +13,4 @@ fastapi
 uvicorn
 httpx
 tenacity
-chromadb
+chromadb~=1.5.2

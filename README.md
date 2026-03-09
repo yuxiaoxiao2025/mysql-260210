@@ -160,6 +160,146 @@ mysql260227/
 └── CONTRIBUTING.md       # 贡献指南
 ```
 
+## 🔍 智能检索管道
+
+本系统采用先进的智能检索管道，通过向量召回 + 两层重排序实现高精度的表/字段匹配。
+
+### 核心特性
+
+| 特性 | 说明 |
+|------|------|
+| **Embedding v4** | 使用 DashScope text-embedding-v4 模型，支持 query/document 模式 |
+| **两层 Rerank** | 表级 + 字段级双重重排序，提升召回精度 |
+| **预算控制** | 500ms 总预算，超时自动降级 |
+| **语义增强** | 表元数据支持语义描述、标签、置信度 |
+
+### 检索流程
+
+```
+用户查询 → 向量召回(Top 50) → 表级 Rerank(Top 10) → 字段级 Rerank(Top 30)
+                    ↑                  ↓
+               ChromaDB         qwen3-reranker
+```
+
+### 组件说明
+
+#### EmbeddingService
+
+支持 text-embedding-v3/v4 模型，提供：
+
+- **query/document 模式**: 查询和文档使用不同的嵌入策略
+- **instruction 支持**: 可为查询添加指令提升召回效果
+- **批量处理**: 支持批量嵌入，自动重试机制
+
+```python
+from src.metadata.embedding_service import EmbeddingService
+
+# 初始化服务（默认 text-embedding-v3）
+service = EmbeddingService(model="text-embedding-v4", dimension=1024)
+
+# 生成查询向量（使用 query 模式）
+query_embedding = service.embed_text(
+    "查询车牌信息",
+    text_type="query",
+    instruct="为数据库查询场景生成向量"
+)
+
+# 生成文档向量（使用 document 模式）
+doc_embedding = service.embed_text(
+    table_description,
+    text_type="document"
+)
+```
+
+#### RerankService
+
+使用 qwen3-reranker 模型进行相关性重排序：
+
+- **模型**: qwen3-reranker-0.6b
+- **API**: OpenAI 兼容的 DashScope API
+- **输出**: 按相关性分数排序的结果列表
+
+```python
+from src.metadata.rerank_service import RerankService
+
+service = RerankService()
+results = service.rerank(
+    query="查询车牌",
+    candidates=["cloud_fixed_plate: 固定车牌表", "cloud_park: 场库表"],
+    top_n=5
+)
+# results[0].index = 最相关候选项的索引
+# results[0].relevance_score = 相关性分数 (0-1)
+```
+
+#### RetrievalPipeline
+
+两层检索管道，带预算控制：
+
+- **默认预算**: 500ms
+- **降级阈值**: 剩余时间 < 180ms 时跳过字段级 Rerank
+- **降级策略**: 使用向量召回结果 + 表级 Rerank 结果
+
+```python
+from src.metadata.retrieval_pipeline import RetrievalPipeline
+
+pipeline = RetrievalPipeline(budget_ms=500)
+result = pipeline.search("查询车牌信息", top_k=10)
+
+print(result.matches[0].table_name)  # 最相关的表
+print(result.metadata["field_rerank_skipped"])  # 是否跳过字段 Rerank
+print(result.execution_time_ms)  # 总耗时
+```
+
+### 语义增强模板
+
+表元数据支持语义增强字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `semantic_description` | str | 语义描述（业务含义） |
+| `semantic_tags` | list[str] | 语义标签 |
+| `semantic_source` | str | 来源（comment/rule/llm） |
+| `semantic_confidence` | float | 置信度 (0-1) |
+
+语义描述模板：
+
+```
+【业务核心语义】
+- 所属业务域：车辆管理
+- 表业务含义：存储固定车牌信息
+- 业务用途：VIP车牌下发、查询、管理
+
+【SQL技术细节】
+- 基础属性：parkcloud.cloud_fixed_plate
+- 关联属性：关联 cloud_park 场库表
+```
+
+### 配置选项
+
+```env
+# DashScope API 密钥
+DASHSCOPE_API_KEY=your_api_key
+
+# Embedding 模型配置
+EMBEDDING_MODEL=text-embedding-v4
+EMBEDDING_DIMENSION=1024
+
+# Rerank 配置
+RERANK_MODEL=qwen3-reranker-0.6b
+RERANK_BUDGET_MS=500
+```
+
+### 性能指标
+
+| 指标 | 目标值 |
+|------|--------|
+| 两层 Rerank 总耗时 | < 500ms |
+| 全链路查询 | 1-2 秒 |
+| Top-10 命中率 | > 85% |
+
+---
+
 ## 🔧 开发
 
 ### 运行测试
@@ -201,5 +341,5 @@ isort src/ tests/
 
 ---
 
-**当前版本**: 3.0.0
-**最后更新**: 2026-03-04
+**当前版本**: 3.1.0
+**最后更新**: 2026-03-09

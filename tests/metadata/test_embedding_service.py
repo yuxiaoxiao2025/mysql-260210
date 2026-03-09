@@ -25,7 +25,7 @@ class TestEmbeddingService:
                 service = EmbeddingService()
 
                 assert service.api_key == "test_key"
-                assert service.model == "text-embedding-v3"
+                assert service.model == "text-embedding-v4"
                 assert service.dimension == 1024
 
     def test_init_with_custom_model_and_dimension(self):

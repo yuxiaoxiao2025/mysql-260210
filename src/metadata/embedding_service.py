@@ -44,12 +44,12 @@ class EmbeddingService:
     # API rate limit status code
     RATE_LIMIT_STATUS_CODE = 429
 
-    def __init__(self, model: str = "text-embedding-v3", dimension: int = 1024):
+    def __init__(self, model: str = "text-embedding-v4", dimension: int = 1024):
         """
         Initialize EmbeddingService.
 
         Args:
-            model: DashScope embedding model name (default: text-embedding-v3)
+            model: DashScope embedding model name (default: text-embedding-v4)
             dimension: Embedding vector dimension (default: 1024)
 
         Raises:

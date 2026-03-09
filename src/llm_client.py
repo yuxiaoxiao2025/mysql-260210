@@ -56,22 +56,38 @@ class LLMClient:
             error_text = f"\n### Error from Previous Attempt\n{error_context}\n"
 
         # Optional: Enhance schema with retrieval
-        agent = self._get_retrieval_agent()
+        # First try the RetrievalPipeline (with reranking support)
         retrieval_context = ""
-        if agent and agent.graph:  # Graph exists (indexing done)
+        pipeline = self._get_retrieval_pipeline()
+        if pipeline:
             try:
-                from src.metadata.retrieval_models import RetrievalRequest, RetrievalLevel
-                result = agent.search(RetrievalRequest(
-                    query=user_query,
-                    level=RetrievalLevel.TABLE,
-                    top_k=5
-                ))
+                result = pipeline.search(user_query, top_k=5)
                 # Add retrieved tables to schema_context
                 retrieval_context = "\n" + self._build_retrieval_context(result)
-                logger.debug(f"Enhanced schema with {len(result.matches)} retrieved tables")
+                logger.debug(
+                    f"Enhanced schema with {len(result.matches)} retrieved tables via pipeline"
+                )
             except Exception as e:
-                logger.warning(f"Retrieval enhancement failed: {e}")
-                # Retrieval is optional enhancement, continue without it
+                logger.warning(f"Pipeline retrieval enhancement failed: {e}")
+                # Continue without enhancement or fall back to agent
+
+        # Fall back to RetrievalAgent if pipeline is not available
+        if not retrieval_context:
+            agent = self._get_retrieval_agent()
+            if agent and agent.graph:  # Graph exists (indexing done)
+                try:
+                    from src.metadata.retrieval_models import RetrievalRequest, RetrievalLevel
+                    result = agent.search(RetrievalRequest(
+                        query=user_query,
+                        level=RetrievalLevel.TABLE,
+                        top_k=5
+                    ))
+                    # Add retrieved tables to schema_context
+                    retrieval_context = "\n" + self._build_retrieval_context(result)
+                    logger.debug(f"Enhanced schema with {len(result.matches)} retrieved tables via agent")
+                except Exception as e:
+                    logger.warning(f"Retrieval enhancement failed: {e}")
+                    # Retrieval is optional enhancement, continue without it
 
         prompt = f"""You are a MySQL expert. Your task is to translate the user's natural language query into an executable SQL statement.
 
@@ -212,6 +228,28 @@ JSON Object:
                 logger.warning(f"Failed to load RetrievalAgent: {e}")
                 self.retrieval_agent = None
         return self.retrieval_agent
+
+    def _get_retrieval_pipeline(self) -> Optional[Any]:
+        """
+        Lazy load retrieval pipeline with reranking support.
+
+        Returns:
+            RetrievalPipeline instance if available, None otherwise.
+        """
+        if os.getenv("DISABLE_RETRIEVAL") == "1":
+            logger.debug("Retrieval enhancement disabled by environment flag.")
+            return None
+        if not hasattr(self, "_retrieval_pipeline"):
+            self._retrieval_pipeline = None
+        if self._retrieval_pipeline is None:
+            try:
+                from src.metadata.retrieval_pipeline import RetrievalPipeline
+                self._retrieval_pipeline = RetrievalPipeline(budget_ms=500, env="dev")
+                logger.debug("RetrievalPipeline lazy loaded successfully")
+            except Exception as e:
+                logger.warning(f"Failed to load RetrievalPipeline: {e}")
+                self._retrieval_pipeline = None
+        return self._retrieval_pipeline
 
     def _build_retrieval_context(self, result: "TableRetrievalResult") -> str:
         """

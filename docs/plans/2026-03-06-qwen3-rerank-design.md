@@ -1,8 +1,47 @@
 # Qwen3-Rerank + Embedding v4 设计方案
 
-**日期:** 2026-03-06  
-**范围:** 元数据检索增强（向量召回 + 两层 Rerank + 语义补全）  
+**日期:** 2026-03-06
+**范围:** 元数据检索增强（向量召回 + 两层 Rerank + 语义补全）
 **推荐方案:** 方案 B（text-embedding-v4 + 两层 Rerank + 语义补全）
+**实现状态:** ✅ 已完成 (2026-03-09)
+
+## 实现状态
+
+| 组件 | 状态 | 文件 |
+|------|------|------|
+| EmbeddingService | ✅ 已实现 | `src/metadata/embedding_service.py` |
+| RerankService | ✅ 已实现 | `src/metadata/rerank_service.py` |
+| RetrievalPipeline | ✅ 已实现 | `src/metadata/retrieval_pipeline.py` |
+| 语义字段 (TableMetadata) | ✅ 已实现 | `src/metadata/models.py` |
+| 单元测试 | ✅ 已实现 | `tests/test_rerank_service.py`, `tests/test_retrieval_pipeline.py` |
+
+### 实现细节
+
+#### EmbeddingService
+- 支持模型: text-embedding-v3, text-embedding-v4
+- 向量维度: 1024
+- 特性: query/document 模式, instruction 支持, 批量处理
+
+#### RerankService
+- 模型: qwen3-reranker-0.6b
+- API: OpenAI 兼容的 DashScope API (https://dashscope.aliyuncs.com/compatible-mode/v1)
+- 返回: RerankResult (index, relevance_score)
+
+#### RetrievalPipeline
+- 默认预算: 500ms
+- 降级阈值: 剩余 < 180ms 时跳过字段 Rerank
+- 流程: 向量召回 → 表级 Rerank → 字段级 Rerank（可选）
+
+#### 语义增强字段
+```python
+class TableMetadata(BaseModel):
+    semantic_description: str | None = None
+    semantic_tags: list[str] = Field(default_factory=list)
+    semantic_source: str | None = None  # comment | rule | llm
+    semantic_confidence: float | None = None
+```
+
+---
 
 **目标**
 - 将自然语言查询的表/字段命中率显著提升，支持跨表关联准确召回。

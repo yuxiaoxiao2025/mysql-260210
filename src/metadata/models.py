@@ -155,17 +155,10 @@ class KnowledgeGraph(BaseModel):
         created_at: ISO timestamp of when the graph was created.
         updated_at: ISO timestamp of when the graph was last updated.
         tables: List of all table metadata in the knowledge graph.
-<<<<<<< HEAD
         namespaces: Mapping of namespace to description or label.
         template_mapping: Mapping of park instances to template namespace.
         park_instances: List of park instance database names.
         database_classification: Mapping of database name to classification.
-=======
-        namespaces: Namespace index mapping {db_name: namespace_type}.
-        template_mapping: Template to instance mapping.
-        park_instances: List of park database instances.
-        database_classification: Database classification info.
->>>>>>> feat/multi-database-namespace
     """
 
     version: str = "2.0"
@@ -178,14 +171,6 @@ class KnowledgeGraph(BaseModel):
     database_classification: Dict[str, str] = Field(default_factory=dict)
 
     # 娡型升级：命名空间支持
-    namespaces: Dict[str, str] = Field(default_factory=dict)
-    # {库名: 命名空间类型} - "primary" | "secondary" | "park_template" | "park_instance"
-    template_mapping: Dict[str, str] = Field(default_factory=dict)
-    # {园区库名: 模板库名}
-    park_instances: List[str] = Field(default_factory=list)
-    # 所有园区库名列表
-    database_classification: Dict[str, str] = Field(default_factory=dict)
-    # {库名: 分类} - "primary" | "secondary" | "park_template" | "park_instance" | "excluded"
 
 
 

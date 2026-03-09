@@ -23,6 +23,7 @@ from src.metadata.retrieval_models import (
     RetrievalResult,
 )
 from src.metadata.retrieval_agent import RetrievalAgent
+from src.metadata.change_detector import ChangeDetector, ChangeDiff
 
 __all__ = [
     # Core models
@@ -49,4 +50,7 @@ __all__ = [
     "RetrievalResult",
     # Retrieval agent
     "RetrievalAgent",
+    # Change detection
+    "ChangeDetector",
+    "ChangeDiff",
 ]

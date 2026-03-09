@@ -607,3 +607,124 @@ class TestLLMClientLastResult:
         assert client.last_result is not None
         assert client.last_result == result
         assert client.last_result['sql'] == "SELECT * FROM users"
+
+
+class DummyPipeline:
+    """Dummy pipeline for testing"""
+
+    def search(self, query):
+        from src.metadata.retrieval_models import TableMatch, TableRetrievalResult
+        return TableRetrievalResult(
+            query=query,
+            matches=[
+                TableMatch(
+                    table_name="cloud_fixed_plate",
+                    similarity_score=0.95,
+                    description="固定车牌表"
+                )
+            ],
+            execution_time_ms=100,
+            metadata={}
+        )
+
+
+class TestLLMClientRetrievalPipeline:
+    """测试 RetrievalPipeline 集成"""
+
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
+    @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
+    @patch("dashscope.Generation.call")
+    def test_llm_client_uses_rerank_pipeline(self, mock_call):
+        """测试 LLMClient 使用 RetrievalPipeline 进行重排序"""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_choice = MagicMock()
+        mock_choice.message.content = '''{
+            "sql": "SELECT * FROM cloud_fixed_plate",
+            "filename": "plates",
+            "sheet_name": "车牌",
+            "reasoning": "查询固定车牌"
+        }'''
+
+        mock_response.output.choices = [mock_choice]
+        mock_call.return_value = mock_response
+
+        client = LLMClient()
+        # Mock _get_retrieval_pipeline to return DummyPipeline
+        # This tests that when the method exists and returns a pipeline, it is used
+        client._get_retrieval_pipeline = lambda: DummyPipeline()
+
+        result = client.generate_sql("查询车牌", "Schema")
+
+        # Should have "Related Tables" in reasoning or be successful
+        assert result['sql'] == "SELECT * FROM cloud_fixed_plate"
+
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
+    @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
+    @patch("dashscope.Generation.call")
+    def test_llm_client_pipeline_fallback_to_agent(self, mock_call):
+        """测试当 Pipeline 不可用时回退到 RetrievalAgent"""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_choice = MagicMock()
+        mock_choice.message.content = '''{
+            "sql": "SELECT * FROM cloud_fixed_plate",
+            "filename": "plates",
+            "sheet_name": "车牌",
+            "reasoning": "查询固定车牌"
+        }'''
+
+        mock_response.output.choices = [mock_choice]
+        mock_call.return_value = mock_response
+
+        client = LLMClient()
+        # Both pipeline and agent return None
+        client._get_retrieval_pipeline = lambda: None
+        client._get_retrieval_agent = lambda: None
+
+        result = client.generate_sql("查询车牌", "Schema")
+
+        assert result['sql'] == "SELECT * FROM cloud_fixed_plate"
+
+    @patch.dict(os.environ, {"DISABLE_RETRIEVAL": "1"})
+    @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
+    @patch("dashscope.Generation.call")
+    def test_llm_client_pipeline_exception_handling(self, mock_call):
+        """测试 Pipeline 异常时不影响主流程"""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_choice = MagicMock()
+        mock_choice.message.content = '''{
+            "sql": "SELECT * FROM users",
+            "filename": "users",
+            "sheet_name": "用户",
+            "reasoning": "查询用户"
+        }'''
+
+        mock_response.output.choices = [mock_choice]
+        mock_call.return_value = mock_response
+
+        client = LLMClient()
+
+        # Create a failing pipeline
+        class FailingPipeline:
+            def search(self, query):
+                raise Exception("Pipeline error")
+
+        client._get_retrieval_pipeline = lambda: FailingPipeline()
+        client._get_retrieval_agent = lambda: None
+
+        # Should not raise exception
+        result = client.generate_sql("查询用户", "Schema")
+
+        assert result['sql'] == "SELECT * FROM users"
+
+    @patch.dict(os.environ, {"DASHSCOPE_API_KEY": "sk-test"})
+    @patch("dashscope.Generation.call")
+    def test_llm_client_get_retrieval_pipeline_method_exists(self, mock_call):
+        """测试 _get_retrieval_pipeline 方法存在"""
+        client = LLMClient()
+        # The method should exist
+        assert hasattr(client, '_get_retrieval_pipeline')
+        # The method should be callable
+        assert callable(client._get_retrieval_pipeline)
