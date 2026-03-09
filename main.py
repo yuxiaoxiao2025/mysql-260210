@@ -127,6 +127,7 @@ def main():
     print_welcome()
 
     while True:
+        sql_to_execute = None  # 初始化变量，防止未定义
         try:
             user_input = input("\n[MySQL/AI] > ").strip()
 
@@ -369,6 +370,7 @@ def main():
                             print(f"❌ 执行失败: {exec_result.error}")
                     else:
                         # 查询操作，导出结果
+                        sql_to_execute = exec_result.sql if hasattr(exec_result, 'sql') else None
                         if exec_result.previews and exec_result.previews[0].after:
                             df_data = exec_result.previews[0].after
                             import pandas as pd
