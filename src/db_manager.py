@@ -469,3 +469,23 @@ class DatabaseManager:
             tables = self.get_tables_in_database(db_name)
             counts[db_name] = len(tables)
         return counts
+
+    def sample_data(self, table_name: str, limit: int = 5, schema: str = None) -> pd.DataFrame:
+        """Get sample data from a table.
+
+        Args:
+            table_name: Name of the table
+            limit: Number of rows to return (default 5)
+            schema: Database schema (optional)
+
+        Returns:
+            DataFrame with sample data
+        """
+        table_full = f"{schema}.{table_name}" if schema else table_name
+        query = f"SELECT * FROM {table_full} LIMIT {limit}"
+        try:
+            return self.execute_query(query)
+        except Exception as e:
+            from loguru import logger
+            logger.warning(f"Failed to get sample data for {table_full}: {e}")
+            return pd.DataFrame()
