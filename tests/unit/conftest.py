@@ -130,5 +130,13 @@ def no_real_network(monkeypatch):
 def reset_streamlit_state():
     streamlit = sys.modules["streamlit"]
     streamlit.session_state = {}
+    
+    # Ensure src.web.state_manager uses the mocked streamlit
+    # This is necessary because if src.web.state_manager was imported before sys.modules["streamlit"]
+    # was patched, it would hold a reference to the real streamlit module (or a different object).
+    if "src.web.state_manager" in sys.modules:
+        import src.web.state_manager
+        src.web.state_manager.st = streamlit
+        
     yield
     streamlit.session_state = {}
