@@ -45,6 +45,10 @@ from src.context import SlotTracker, QueryRewriter
 from src.cli.preview import CLIPreview
 from src.cli.interaction import Interaction
 from src.feedback.intent_parser import FeedbackParser
+from src.memory.concept_store import ConceptStoreService
+from src.memory.context_memory import ContextMemoryService
+from src.dialogue.startup_wizard import StartupWizard
+from src.dialogue.dialogue_engine import DialogueEngine, DialogueState
 
 def print_welcome():
     print("=" * 60)
@@ -62,6 +66,7 @@ def print_welcome():
     print("  help [operation]  - 查看帮助或操作详情")
     print("  operations        - 列出所有可用操作")
     print("  index schema      - 索引所有数据库的表结构")
+    print("  chat              - 进入智能对话模式（推荐）")
     print("  exit / quit       - 退出程序")
     print("-" * 60)
     print("也可以直接输入自然语言或 SQL 语句")
@@ -81,6 +86,48 @@ def main():
         knowledge_loader = KnowledgeLoader(db_manager=db)
         logger.info(f"知识库加载成功，共 {len(knowledge_loader.get_all_operations())} 个操作模板")
         print(f"[OK] 知识库加载成功！({len(knowledge_loader.get_all_operations())} 个操作模板)")
+
+        # 初始化记忆系统
+        print("正在初始化对话记忆系统...")
+        concept_store = ConceptStoreService()
+        context_memory = ContextMemoryService()
+        logger.info("对话记忆系统初始化成功")
+        print("[OK] 对话记忆系统初始化成功！")
+
+        # 检查是否需要启动向导
+        wizard = StartupWizard(concept_store)
+        if wizard.should_start():
+            print("\n" + "=" * 60)
+            print(wizard.get_welcome_message())
+            print("=" * 60)
+            print("\n让我们开始初始化知识库...")
+
+            try:
+                question = wizard.start()
+                while question:
+                    print(f"\n[向导] {question.question}")
+                    if question.options:
+                        for i, opt in enumerate(question.options):
+                            print(f"  {chr(65+i)}. {opt}")
+                    answer = input("你的回答: ").strip()
+                    if answer.lower() in ['exit', 'quit', '退出']:
+                        print("跳过向导...")
+                        break
+                    question = wizard.answer(answer)
+
+                print("\n" + wizard.get_completion_message())
+            except Exception as e:
+                logger.warning(f"启动向导执行出错: {e}")
+                print(f"[WARN] 启动向导未能完成，继续主程序...")
+        else:
+            # 询问是否需要补充知识库
+            try:
+                response = input("\n是否需要补充知识库？(y/n，默认n): ").strip().lower()
+                if response == 'y':
+                    print("[INFO] 知识库补充功能可通过对话模式使用")
+            except EOFError:
+                # 非交互式环境，跳过
+                pass
 
         print("正在加载 AI 模块...")
         llm = LLMClient()
@@ -119,6 +166,12 @@ def main():
         logger.info("智能检索增强组件初始化成功")
         print("[OK] 智能检索增强组件初始化成功！")
 
+        # 初始化对话引擎
+        print("正在初始化对话引擎...")
+        dialogue_engine = DialogueEngine(concept_store, context_memory)
+        logger.info("对话引擎初始化成功")
+        print("[OK] 对话引擎初始化成功！")
+
     except Exception as e:
         logger.error(f"初始化失败: {e}")
         print(f"[ERR] 初始化失败: {e}")
@@ -148,6 +201,47 @@ def main():
                     print(f"  {i+1}. {t}")
                 continue
 
+            # 新增：chat 命令 - 进入对话模式
+            if user_input.lower() == 'chat':
+                print("\n" + "=" * 60)
+                print("进入对话模式")
+                print("你好，我是你的停车数据库助手，有什么可以帮你？")
+                print("输入 'exit' 或 'quit' 退出对话模式")
+                print("=" * 60)
+
+                while True:
+                    try:
+                        chat_input = input("\n[对话] > ").strip()
+                        if not chat_input:
+                            continue
+
+                        if chat_input.lower() in ['exit', 'quit', '退出']:
+                            print("退出对话模式")
+                            break
+
+                        # 使用对话引擎处理输入
+                        response = dialogue_engine.process_input(chat_input)
+                        print(f"\n[助手] {response.message}")
+
+                        if response.options:
+                            for i, opt in enumerate(response.options):
+                                print(f"  {chr(65+i)}. {opt}")
+
+                        if response.state == DialogueState.EXECUTING:
+                            print("[执行中...] 这里将调用实际执行逻辑")
+                            # TODO: 集成实际执行逻辑
+                            dialogue_engine.reset()
+
+                    except KeyboardInterrupt:
+                        print("\n退出对话模式")
+                        break
+                    except Exception as e:
+                        logger.error(f"对话模式错误: {e}")
+                        print(f"[ERR] 对话出错: {e}")
+
+                print("=" * 60)
+                continue
+
             if user_input.lower().startswith('desc '):
                 table_name = user_input.split()[1]
                 try:
@@ -168,6 +262,7 @@ def main():
                 print("  使用 'operations' 查看所有可用操作")
                 print("  使用 'help <操作名>' 查看操作详情，如 'help plate_distribute'")
                 print("  使用 'index schema [--env dev|prod] [--batch-size N] [--force]' 执行索引")
+                print("  使用 'chat' 进入智能对话模式，支持自然语言交互和概念学习")
                 continue
 
             if user_input.lower().startswith('help '):
