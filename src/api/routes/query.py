@@ -14,6 +14,7 @@ from src.api.models import (
     QueryRequest,
     QueryResponse,
 )
+from src.sql_safety import validate_direct_query_sql
 
 router = APIRouter()
 
@@ -106,9 +107,9 @@ async def execute_query(
     
     注意：只允许 SELECT 语句
     """
-    sql_upper = request.sql.strip().upper()
-    if not sql_upper.startswith("SELECT"):
-        raise HTTPException(status_code=400, detail="只能执行 SELECT 查询")
+    is_valid, reason = validate_direct_query_sql(request.sql)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=reason)
     
     try:
         df = db.execute_query(request.sql)

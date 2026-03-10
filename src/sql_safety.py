@@ -9,6 +9,9 @@ SQL 安全校验模块
 
 import re
 from typing import Tuple
+import sqlglot
+from sqlglot import exp
+from sqlglot.errors import SqlglotError
 
 
 # 支持的DML操作类型
@@ -16,6 +19,44 @@ DML_INTENTS = {"insert", "update", "delete", "select"}
 
 # 禁止的危险关键字
 DANGEROUS_KEYWORDS = ("drop", "alter", "truncate")
+SQL_STRING_PATTERN = r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|`(?:``|[^`])*`"
+SQL_LINE_COMMENT_PATTERN = r"--[^\r\n]*"
+SQL_BLOCK_COMMENT_PATTERN = r"/\*[\s\S]*?\*/"
+RISKY_SELECT_PATTERNS = (
+    (r"\binto\s+outfile\b", "SELECT 查询禁止使用 INTO OUTFILE"),
+    (r"\binto\s+dumpfile\b", "SELECT 查询禁止使用 INTO DUMPFILE"),
+    (r"\bsleep\s*\(", "SELECT 查询禁止使用危险函数 SLEEP"),
+    (r"\bbenchmark\s*\(", "SELECT 查询禁止使用危险函数 BENCHMARK"),
+)
+
+
+def _strip_sql_literals_and_comments(sql: str) -> str:
+    without_block_comments = re.sub(SQL_BLOCK_COMMENT_PATTERN, " ", sql)
+    without_line_comments = re.sub(SQL_LINE_COMMENT_PATTERN, " ", without_block_comments)
+    return re.sub(SQL_STRING_PATTERN, "''", without_line_comments)
+
+
+def has_multiple_statements(sql: str) -> bool:
+    normalized = _strip_sql_literals_and_comments(sql).strip()
+    if normalized.endswith(";"):
+        normalized = normalized[:-1].strip()
+    return ";" in normalized
+
+
+def has_where_clause(sql: str) -> bool:
+    try:
+        parsed = sqlglot.parse_one(sql, dialect="mysql")
+    except SqlglotError:
+        normalized = _strip_sql_literals_and_comments(sql)
+        return re.search(r"\bwhere\b", normalized, flags=re.IGNORECASE) is not None
+
+    if isinstance(parsed, exp.Update):
+        return parsed.args.get("where") is not None
+    if isinstance(parsed, exp.Delete):
+        return parsed.args.get("where") is not None
+
+    normalized = _strip_sql_literals_and_comments(sql)
+    return re.search(r"\bwhere\b", normalized, flags=re.IGNORECASE) is not None
 
 
 def detect_intent(sql: str) -> str:
@@ -39,10 +80,20 @@ def detect_intent(sql: str) -> str:
     if not sql or not sql.strip():
         return "unknown"
 
-    # 提取第一个单词作为SQL命令
-    first_word = sql.strip().split()[0].lower()
+    try:
+        parsed = sqlglot.parse_one(sql, dialect="mysql")
+        if isinstance(parsed, exp.Select):
+            return "select"
+        if isinstance(parsed, exp.Insert):
+            return "insert"
+        if isinstance(parsed, exp.Update):
+            return "update"
+        if isinstance(parsed, exp.Delete):
+            return "delete"
+    except SqlglotError:
+        pass
 
-    # 检查是否为已知DML操作
+    first_word = sql.strip().split()[0].lower()
     if first_word in DML_INTENTS:
         return first_word
 
@@ -73,12 +124,37 @@ def validate_sql(sql: str) -> Tuple[bool, str]:
     if not sql or not sql.strip():
         return True, "ok"
 
-    lowered = sql.lower()
+    lowered = _strip_sql_literals_and_comments(sql).lower()
 
     # 使用单词边界匹配，避免误匹配（如'dropship'等合法字段名）
     for keyword in DANGEROUS_KEYWORDS:
         pattern = rf"\b{keyword}\b"
         if re.search(pattern, lowered):
             return False, f"Disallowed keyword: {keyword}"
+
+    return True, "ok"
+
+
+def validate_direct_query_sql(sql: str) -> Tuple[bool, str]:
+    """
+    验证直接 SQL 模式下的语句安全性。
+
+    直接 SQL 模式仅允许单条 SELECT 查询，禁止 DML 和多语句执行。
+    """
+    is_valid, reason = validate_sql(sql)
+    if not is_valid:
+        return False, reason
+
+    intent = detect_intent(sql)
+    if intent != "select":
+        return False, "直接 SQL 模式仅允许 SELECT 查询"
+
+    if has_multiple_statements(sql):
+        return False, "直接 SQL 模式不允许多语句"
+
+    normalized = _strip_sql_literals_and_comments(sql).lower()
+    for pattern, reason in RISKY_SELECT_PATTERNS:
+        if re.search(pattern, normalized):
+            return False, reason
 
     return True, "ok"

@@ -11,31 +11,46 @@ from src.api.models import (
     MutationExecuteResponse
 )
 from src.preview.diff_renderer import DiffRenderer
+from src.sql_safety import (
+    detect_intent,
+    has_multiple_statements,
+    has_where_clause,
+    validate_sql
+)
 
 router = APIRouter()
 
 
-# 危险 SQL 关键词
-DANGEROUS_KEYWORDS = ["DROP", "TRUNCATE", "ALTER TABLE", "GRANT", "REVOKE"]
-
-
-def _check_sql_safety(sql: str) -> tuple:
+def _check_mutation_sql_safety(sql: str) -> tuple:
     """
     检查 SQL 安全性
     返回: (is_safe, error_message)
     """
-    sql_upper = sql.upper()
-    
-    # 检查危险关键词
-    for keyword in DANGEROUS_KEYWORDS:
-        if keyword in sql_upper:
-            return False, f"禁止执行包含 {keyword} 的操作"
-    
-    # 检查 DELETE/UPDATE 是否有 WHERE 条件
-    if sql_upper.strip().startswith("DELETE") or sql_upper.strip().startswith("UPDATE"):
-        if "WHERE" not in sql_upper:
-            return False, "DELETE/UPDATE 操作必须包含 WHERE 条件"
-    
+    is_valid, error_msg = validate_sql(sql)
+    if not is_valid:
+        return False, f"禁止执行不安全 SQL: {error_msg}"
+
+    if has_multiple_statements(sql):
+        return False, "不允许执行多语句"
+
+    intent = detect_intent(sql)
+    if intent in {"delete", "update"} and not has_where_clause(sql):
+        return False, "DELETE/UPDATE 操作必须包含 WHERE 条件"
+
+    if intent not in {"insert", "update", "delete"}:
+        return False, "仅允许 INSERT/UPDATE/DELETE 变更语句"
+
+    return True, ""
+
+
+def _check_preview_sql_safety(sql: str) -> tuple:
+    is_valid, error_msg = validate_sql(sql)
+    if not is_valid:
+        return False, f"禁止执行不安全 SQL: {error_msg}"
+    if has_multiple_statements(sql):
+        return False, "预览 SQL 不允许多语句"
+    if detect_intent(sql) != "select":
+        return False, "预览 SQL 必须是 SELECT 查询"
     return True, ""
 
 
@@ -50,9 +65,12 @@ async def preview_mutation(request: MutationPreviewRequest, db=Depends(get_db)):
     3. 渲染 Before/After 对比
     """
     # 1. 安全检查
-    is_safe, error_msg = _check_sql_safety(request.sql)
+    is_safe, error_msg = _check_mutation_sql_safety(request.sql)
     if not is_safe:
         raise HTTPException(status_code=400, detail=error_msg)
+    preview_safe, preview_error = _check_preview_sql_safety(request.preview_sql)
+    if not preview_safe:
+        raise HTTPException(status_code=400, detail=preview_error)
     
     start_time = time.time()
     
@@ -102,9 +120,12 @@ async def execute_mutation(request: MutationExecuteRequest, db=Depends(get_db)):
     注意：此操作会真正修改数据！
     """
     # 安全检查
-    is_safe, error_msg = _check_sql_safety(request.sql)
+    is_safe, error_msg = _check_mutation_sql_safety(request.sql)
     if not is_safe:
         raise HTTPException(status_code=400, detail=error_msg)
+    preview_safe, preview_error = _check_preview_sql_safety(request.preview_sql)
+    if not preview_safe:
+        raise HTTPException(status_code=400, detail=preview_error)
     
     try:
         result = db.execute_in_transaction(

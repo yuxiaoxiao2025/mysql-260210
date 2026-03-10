@@ -35,7 +35,7 @@ from src.db_manager import DatabaseManager
 from src.exporter import ExcelExporter
 from src.schema_loader import SchemaLoader
 from src.llm_client import LLMClient
-from src.sql_safety import validate_sql, detect_intent
+from src.sql_safety import validate_direct_query_sql
 from src.preview_renderer import should_render_html
 from src.knowledge import KnowledgeLoader
 from src.intent import IntentRecognizer
@@ -475,8 +475,7 @@ def main():
                         continue
             else:
                 # 直接 SQL 输入
-                intent = detect_intent(user_input)
-                is_valid, reason = validate_sql(user_input)
+                is_valid, reason = validate_direct_query_sql(user_input)
                 if not is_valid:
                     print(f"❌ 危险操作，拒绝执行: {reason}")
                     continue

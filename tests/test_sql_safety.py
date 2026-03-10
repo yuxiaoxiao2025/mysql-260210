@@ -7,7 +7,7 @@ SQL 安全校验测试
 """
 
 import pytest
-from src.sql_safety import detect_intent, validate_sql
+from src.sql_safety import detect_intent, validate_direct_query_sql, validate_sql
 
 
 def test_detect_intent_update():
@@ -103,3 +103,53 @@ def test_validate_word_boundary():
     ok, _ = validate_sql("SELECT dropship_status FROM orders")
     # 这个测试可能会失败，取决于实现细节
     # 如果使用正则表达式\b边界，应该通过
+    assert ok is True
+
+
+def test_validate_direct_query_allows_select():
+    """测试直接查询模式允许 SELECT"""
+    ok, reason = validate_direct_query_sql("SELECT * FROM users WHERE id = 1")
+    assert ok is True
+    assert reason == "ok"
+
+
+def test_validate_direct_query_rejects_update():
+    """测试直接查询模式拒绝 UPDATE"""
+    ok, reason = validate_direct_query_sql("UPDATE users SET name='a' WHERE id=1")
+    assert ok is False
+    assert "仅允许 select" in reason.lower()
+
+
+def test_validate_direct_query_rejects_multi_statement():
+    """测试直接查询模式拒绝多语句"""
+    ok, reason = validate_direct_query_sql("SELECT 1; SELECT 2")
+    assert ok is False
+    assert "多语句" in reason
+
+
+def test_validate_allows_dangerous_keyword_in_string_literal():
+    ok, reason = validate_sql("SELECT 'drop table users' AS msg")
+    assert ok is True
+    assert reason == "ok"
+
+
+def test_validate_allows_dangerous_keyword_in_comment():
+    ok, reason = validate_sql("SELECT 1 -- drop table users")
+    assert ok is True
+    assert reason == "ok"
+
+
+def test_detect_intent_with_cte_select():
+    assert detect_intent("WITH t AS (SELECT 1) SELECT * FROM t") == "select"
+
+
+def test_validate_direct_query_rejects_into_outfile():
+    ok, reason = validate_direct_query_sql("SELECT * INTO OUTFILE '/tmp/a.csv' FROM users")
+    assert ok is False
+    assert "outfile" in reason.lower()
+
+
+def test_validate_direct_query_rejects_sleep_function():
+    ok, reason = validate_direct_query_sql("SELECT SLEEP(5)")
+    assert ok is False
+    assert "危险函数" in reason
