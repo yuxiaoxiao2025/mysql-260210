@@ -126,7 +126,9 @@ def render_multi_table_preview(
         st.write("**发现的关系:**")
         st.dataframe(pd.DataFrame(all_joins), use_container_width=True, hide_index=True)
 
-        # Generate sample JOIN query
+        # Generate sample JOIN query (for demonstration only)
+        # Note: Table names come from graph metadata, not user input
+        # In production, use parameterized queries with validated table names
         st.write("**JOIN 示例查询:**")
 
         # Simple two-table join

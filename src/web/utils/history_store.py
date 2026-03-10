@@ -16,15 +16,18 @@ logger = logging.getLogger(__name__)
 class HistoryStore:
     """Manages query history storage using JSON file."""
 
-    DEFAULT_HISTORY_FILE = "data/web/query_history.json"
-
     def __init__(self, history_file: Optional[str] = None):
         """Initialize HistoryStore.
 
         Args:
             history_file: Path to history JSON file (optional)
         """
-        self.history_file = Path(history_file or self.DEFAULT_HISTORY_FILE)
+        # Use project root relative path if not specified
+        if history_file is None:
+            project_root = Path(__file__).parent.parent.parent.parent
+            history_file = project_root / "data" / "web" / "query_history.json"
+
+        self.history_file = Path(history_file)
         self.history_file.parent.mkdir(parents=True, exist_ok=True)
 
     def load(self) -> List[Dict[str, Any]]:

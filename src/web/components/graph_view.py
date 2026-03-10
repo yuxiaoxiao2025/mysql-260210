@@ -4,12 +4,15 @@ Graph Visualization Component for Knowledge Graph Explorer.
 Renders interactive knowledge graph using streamlit-agraph.
 """
 
+import logging
 from typing import List, Dict, Any, Callable, Optional
 
 import streamlit as st
 from streamlit_agraph import agraph, Node, Edge, Config
 
 from src.web.services.graph_service import KnowledgeGraphService
+
+logger = logging.getLogger(__name__)
 
 
 def get_color_for_node(node_id: str, selected_tables: List[str], top_ranked: List[str] = None) -> str:
@@ -49,11 +52,16 @@ def render_graph_view(
         Clicked node ID or None
     """
     # Get subgraph for selected tables
-    if selected_tables:
-        nodes_data, edges_data = graph_service.get_subgraph_for_tables(selected_tables)
-    else:
-        # Show full graph or empty state
-        nodes_data, edges_data = [], []
+    try:
+        if selected_tables:
+            nodes_data, edges_data = graph_service.get_subgraph_for_tables(selected_tables)
+        else:
+            # Show full graph or empty state
+            nodes_data, edges_data = [], []
+    except Exception as e:
+        logger.error(f"Failed to get subgraph: {e}")
+        st.error(f"Failed to load graph data: {e}")
+        return None
 
     # Convert to agraph format
     nodes = [
@@ -103,4 +111,4 @@ def render_graph_view(
 
 def render_empty_graph() -> None:
     """Render empty graph placeholder."""
-    st.info("\u8d1f 在图中点击节点选择表，或在上方搜索表")
+    st.info("Click nodes to select tables, or search for tables above")
