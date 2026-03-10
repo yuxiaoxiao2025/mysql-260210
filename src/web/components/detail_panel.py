@@ -137,7 +137,18 @@ def render_table_detail(
 
     # Get sample data
     st.write("**数据样本:**")
-    sample = db_manager.sample_data(table_name)
+    # Parse schema.table format for sample_data call
+    schema, _, tbl_name = table_name.partition('.')
+
+    # Validate before querying
+    if schema and tbl_name and _validate_identifier(schema) and _validate_identifier(tbl_name):
+        sample = db_manager.sample_data(tbl_name, schema=schema)
+    elif tbl_name and _validate_identifier(tbl_name):
+        sample = db_manager.sample_data(tbl_name)
+    else:
+        logger.warning(f"Invalid table name for sample_data: {table_name}")
+        sample = pd.DataFrame()
+
     if not sample.empty:
         st.dataframe(sample, use_container_width=True)
     else:
