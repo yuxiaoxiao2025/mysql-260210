@@ -53,25 +53,27 @@ def get_table_columns(db_manager: DatabaseManager, table_name: str) -> List[Dict
     # Parse schema.table format
     schema, _, tbl_name = table_name.partition('.')
 
-    # Validate parsed components
-    if schema and not _validate_identifier(schema):
-        logger.warning(f"Invalid schema name: {schema}")
-        return []
-    if tbl_name and not _validate_identifier(tbl_name):
-        logger.warning(f"Invalid table name: {tbl_name}")
-        return []
+    # Validate parsed components - only validate if they're standalone (not in schema.table format)
 
     try:
-        if schema and tbl_name:
-            # Cross-database query
+        if '.' in table_name:
+            # Has schema.table format - split on first dot
+            schema, _, tbl_name = table_name.partition('.')
+            # Validate schema (must be simple identifier)
+            if not _validate_identifier(schema):
+                logger.warning(f"Invalid schema name: {schema}")
+                return []
+            # Validate table name is not empty
+            if not tbl_name:
+                logger.warning(f"Invalid table name format: {table_name}")
+                return []
             return db_manager.get_table_schema_cross_db(schema, tbl_name)
-        elif tbl_name:
-            # Single database query (schema was empty)
-            return db_manager.get_table_schema(tbl_name)
         else:
-            # schema="something", tbl_name="" (e.g., "schema.")
-            logger.warning(f"Invalid table name format: {table_name}")
-            return []
+            # Simple table name
+            if not _validate_identifier(table_name):
+                logger.warning(f"Invalid table name: {table_name}")
+                return []
+            return db_manager.get_table_schema(table_name)
     except (SQLAlchemyError, NoSuchTableError) as e:
         logger.warning(f"Database error getting schema for {table_name}: {e}")
         return []
