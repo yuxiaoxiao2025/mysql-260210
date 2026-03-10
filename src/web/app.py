@@ -126,7 +126,27 @@ def main():
     services = st.session_state["services"]
 
     # Render sidebar and get query
-    query_text, search_clicked = render_sidebar(state_manager)
+    query_text, search_clicked, selected_history_timestamp = render_sidebar(state_manager)
+
+    last_restored_timestamp = st.session_state.get("last_restored_history_timestamp")
+    if selected_history_timestamp and selected_history_timestamp != last_restored_timestamp:
+        restored_session = state_manager.restore_session(selected_history_timestamp)
+        if restored_session:
+            state_manager.current_query = restored_session.get("query", "")
+            state_manager.selected_tables = restored_session.get("selected_tables", [])
+
+            restored_sql = restored_session.get("generated_sql")
+            if restored_sql:
+                state_manager.generated_sql = restored_sql
+            elif state_manager.current_query and state_manager.selected_tables:
+                handle_generate_sql(services, state_manager)
+            else:
+                state_manager.generated_sql = ""
+
+            st.session_state["last_restored_history_timestamp"] = selected_history_timestamp
+            st.rerun()
+    elif not selected_history_timestamp:
+        st.session_state["last_restored_history_timestamp"] = None
 
     # Handle search action
     if search_clicked and query_text:

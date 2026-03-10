@@ -9,7 +9,7 @@ import streamlit as st
 from src.web.state_manager import StateManager
 
 
-def render_sidebar(state_manager: StateManager) -> str:
+def render_sidebar(state_manager: StateManager) -> tuple[str, bool, str]:
     """
     Render the sidebar with query input and history.
 
@@ -17,7 +17,7 @@ def render_sidebar(state_manager: StateManager) -> str:
         state_manager: StateManager instance for session state
 
     Returns:
-        The current query text from input
+        Tuple of (query_text, search_clicked, selected_history_timestamp)
     """
     with st.sidebar:
         st.header("🔍 Query Input")
@@ -43,22 +43,30 @@ def render_sidebar(state_manager: StateManager) -> str:
         # Query History
         st.header("📜 Query History")
 
-        history = state_manager.history
+        history_entries = state_manager.get_history(limit=20)
+        history_labels = {}
 
-        if not history:
+        if not history_entries:
             st.info("No query history yet")
-            history_options = ["(New Query)"]
+            history_options = [""]
         else:
-            history_options = ["(New Query)"] + [
-                f"{item.timestamp[:19]} - {item.query[:30]}..."
-                if len(item.query) > 30
-                else f"{item.timestamp[:19]} - {item.query}"
-                for item in reversed(history)
-            ]
+            history_options = [""]
+            for entry in history_entries:
+                timestamp = entry.get("timestamp", "")
+                query = entry.get("query", "")
+                if not timestamp:
+                    continue
+                if len(query) > 30:
+                    label = f"{timestamp[:19]} - {query[:30]}..."
+                else:
+                    label = f"{timestamp[:19]} - {query}"
+                history_options.append(timestamp)
+                history_labels[timestamp] = label
 
         selected_history = st.selectbox(
             "History",
             options=history_options,
+            format_func=lambda value: "(New Query)" if value == "" else history_labels.get(value, value),
             index=0,
             key="history_selector"
         )
@@ -73,7 +81,7 @@ def render_sidebar(state_manager: StateManager) -> str:
             state_manager.reset()
             st.rerun()
 
-    return query_text, search_clicked
+    return query_text, search_clicked, selected_history
 
 
 def render_mock_sidebar() -> tuple[str, bool]:

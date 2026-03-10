@@ -54,7 +54,9 @@ def render_graph_view(
     # Get subgraph for selected tables
     try:
         if selected_tables:
-            nodes_data, edges_data = graph_service.get_subgraph_for_tables(selected_tables)
+            subgraph_data = graph_service.get_subgraph_for_tables(selected_tables)
+            nodes_data = subgraph_data.get("nodes", [])
+            edges_data = subgraph_data.get("edges", [])
         else:
             # Show full graph or empty state
             nodes_data, edges_data = [], []
