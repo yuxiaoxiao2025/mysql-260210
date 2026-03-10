@@ -6,7 +6,9 @@ Provides natural language driven interaction with concept learning.
 """
 
 from src.dialogue.concept_recognizer import ConceptRecognizer
+from src.dialogue.startup_wizard import StartupWizard
 
 __all__ = [
     "ConceptRecognizer",
+    "StartupWizard",
 ]
