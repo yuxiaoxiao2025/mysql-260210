@@ -1,21 +1,23 @@
 """Tests for detail_panel component."""
 import sys
 import importlib.util
+from pathlib import Path
 import pytest
 from unittest.mock import Mock, patch
 import logging
 from sqlalchemy.exc import SQLAlchemyError, NoSuchTableError
 
 # Direct import to avoid package __init__.py which has streamlit dependency issues
+module_path = Path(__file__).parent.parent.parent / "src" / "web" / "components" / "detail_panel.py"
 spec = importlib.util.spec_from_file_location(
     "detail_panel",
-    "E:/trae-pc/mysql260227/.worktrees/fix-detail-panel/src/web/components/detail_panel.py"
+    module_path
 )
 detail_panel_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(detail_panel_module)
 
 get_table_columns = detail_panel_module.get_table_columns
-_validate_identifier = detail_panel_module._validate_identifier
+validate_identifier = detail_panel_module.validate_identifier
 
 
 class TestValidateIdentifier:
@@ -34,7 +36,7 @@ class TestValidateIdentifier:
         ("a" * 64, True),  # Max length
     ])
     def test_validate_identifier(self, name, expected):
-        assert _validate_identifier(name) == expected
+        assert validate_identifier(name) == expected
 
 
 class TestGetTableColumns:

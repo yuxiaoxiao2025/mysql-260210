@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError, NoSuchTableError
 from src.llm_client import LLMClient
 from src.db_manager import DatabaseManager
 from src.web.services.graph_service import KnowledgeGraphService
+from src.web.utils.validators import validate_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -62,18 +63,6 @@ class SQLGenerator:
         # Conversation history for refine
         self._history: List[Dict[str, str]] = []
 
-    def _validate_identifier(self, name: str) -> bool:
-        """Validate database identifier (table/schema name).
-
-        MySQL identifier rules:
-        - Max 64 characters
-        - Start with letter or underscore
-        - Contain only alphanumeric, underscore
-        """
-        if not name or len(name) > 64:
-            return False
-        return bool(re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name))
-
     def _build_table_context(
         self,
         table_names: List[str],
@@ -98,10 +87,10 @@ class SQLGenerator:
                 tbl_name = parts[1] if len(parts) > 1 else parts[0]
 
                 # Validate identifiers
-                if db_schema and not self._validate_identifier(db_schema):
+                if db_schema and not validate_identifier(db_schema):
                     logger.warning(f"Invalid schema name: {db_schema}")
                     continue
-                if not tbl_name or not self._validate_identifier(tbl_name):
+                if not tbl_name or not validate_identifier(tbl_name):
                     logger.warning(f"Invalid table name: {tbl_name}")
                     continue
 

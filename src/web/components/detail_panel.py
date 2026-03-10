@@ -4,7 +4,6 @@ Detail Panel Component for Knowledge Graph Explorer.
 Shows table details, data sampling, and multi-table combination preview.
 """
 
-import re
 import logging
 from typing import List, Dict, Any, Optional
 from sqlalchemy.exc import SQLAlchemyError, NoSuchTableError
@@ -16,21 +15,9 @@ import networkx as nx
 
 from src.db_manager import DatabaseManager
 from src.web.services.graph_service import KnowledgeGraphService
+from src.web.utils.validators import validate_identifier
 
 logger = logging.getLogger(__name__)
-
-
-def _validate_identifier(name: str) -> bool:
-    """Validate database identifier (table/schema name).
-
-    MySQL identifier rules:
-    - Max 64 characters
-    - Start with letter or underscore
-    - Contain only alphanumeric, underscore
-    """
-    if not name or len(name) > 64:
-        return False
-    return bool(re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name))
 
 
 def get_table_columns(db_manager: DatabaseManager, table_name: str) -> List[Dict[str, Any]]:
@@ -60,7 +47,7 @@ def get_table_columns(db_manager: DatabaseManager, table_name: str) -> List[Dict
             # Has schema.table format - split on first dot
             schema, _, tbl_name = table_name.partition('.')
             # Validate schema (must be simple identifier)
-            if not _validate_identifier(schema):
+            if not validate_identifier(schema):
                 logger.warning(f"Invalid schema name: {schema}")
                 return []
             # Validate table name is not empty
@@ -70,7 +57,7 @@ def get_table_columns(db_manager: DatabaseManager, table_name: str) -> List[Dict
             return db_manager.get_table_schema_cross_db(schema, tbl_name)
         else:
             # Simple table name
-            if not _validate_identifier(table_name):
+            if not validate_identifier(table_name):
                 logger.warning(f"Invalid table name: {table_name}")
                 return []
             return db_manager.get_table_schema(table_name)
@@ -143,9 +130,9 @@ def render_table_detail(
     schema, _, tbl_name = table_name.partition('.')
 
     # Validate before querying
-    if schema and tbl_name and _validate_identifier(schema) and _validate_identifier(tbl_name):
+    if schema and tbl_name and validate_identifier(schema) and validate_identifier(tbl_name):
         sample = db_manager.sample_data(tbl_name, schema=schema)
-    elif tbl_name and _validate_identifier(tbl_name):
+    elif tbl_name and validate_identifier(tbl_name):
         sample = db_manager.sample_data(tbl_name)
     else:
         logger.warning(f"Invalid table name for sample_data: {table_name}")
