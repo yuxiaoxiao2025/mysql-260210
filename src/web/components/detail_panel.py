@@ -4,7 +4,11 @@ Detail Panel Component for Knowledge Graph Explorer.
 Shows table details, data sampling, and multi-table combination preview.
 """
 
+import re
+import logging
 from typing import List, Dict, Any, Optional
+from sqlalchemy.exc import SQLAlchemyError, NoSuchTableError
+
 import pandas as pd
 import streamlit as st
 
@@ -12,6 +16,21 @@ import networkx as nx
 
 from src.db_manager import DatabaseManager
 from src.web.services.graph_service import KnowledgeGraphService
+
+logger = logging.getLogger(__name__)
+
+
+def _validate_identifier(name: str) -> bool:
+    """Validate database identifier (table/schema name).
+
+    MySQL identifier rules:
+    - Max 64 characters
+    - Start with letter or underscore
+    - Contain only alphanumeric, underscore
+    """
+    if not name or len(name) > 64:
+        return False
+    return bool(re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name))
 
 
 def get_table_columns(db_manager: DatabaseManager, table_name: str) -> List[Dict[str, Any]]:
