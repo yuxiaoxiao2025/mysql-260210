@@ -36,15 +36,48 @@ def _validate_identifier(name: str) -> bool:
 def get_table_columns(db_manager: DatabaseManager, table_name: str) -> List[Dict[str, Any]]:
     """Get column metadata for a table.
 
+    Supports both 'table_name' and 'schema.table_name' formats.
+
     Args:
         db_manager: DatabaseManager instance
-        table_name: Table name
+        table_name: Table name (can be 'table' or 'schema.table' format)
 
     Returns:
-        List of column metadata dicts
+        List of column metadata dicts, empty list on error
     """
-    schema = db_manager.get_table_schema(table_name)
-    return schema
+    # Input validation
+    if not table_name or not isinstance(table_name, str):
+        logger.warning("Invalid table_name: must be non-empty string")
+        return []
+
+    # Parse schema.table format
+    schema, _, tbl_name = table_name.partition('.')
+
+    # Validate parsed components
+    if schema and not _validate_identifier(schema):
+        logger.warning(f"Invalid schema name: {schema}")
+        return []
+    if tbl_name and not _validate_identifier(tbl_name):
+        logger.warning(f"Invalid table name: {tbl_name}")
+        return []
+
+    try:
+        if schema and tbl_name:
+            # Cross-database query
+            return db_manager.get_table_schema_cross_db(schema, tbl_name)
+        elif tbl_name:
+            # Single database query (schema was empty)
+            return db_manager.get_table_schema(tbl_name)
+        else:
+            # schema="something", tbl_name="" (e.g., "schema.")
+            logger.warning(f"Invalid table name format: {table_name}")
+            return []
+    except (SQLAlchemyError, NoSuchTableError) as e:
+        logger.warning(f"Database error getting schema for {table_name}: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"Unexpected error getting schema for {table_name}: {e}")
+        return []
 
 
 def find_join_path(
