@@ -56,7 +56,7 @@ class RetrievalPipeline:
 
     def __init__(
         self,
-        budget_ms: int = 500,
+        budget_ms: int = 1000,  # 从 500 改为 1000
         env: str = "dev",
         agent: Optional[RetrievalAgent] = None,
         rerank_service: Optional[RerankService] = None,

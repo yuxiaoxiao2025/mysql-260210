@@ -20,3 +20,7 @@ def get_db_url(db_name: Optional[str] = None, use_default_db: bool = True) -> st
             f"{resolved_db_name}"
         )
     return f"mysql+pymysql://{db_user}:{db_password}@{db_host}:{db_port}/"
+
+# Rerank 配置
+RERANK_BUDGET_MS = 1000  # Rerank 总预算（毫秒）
+FIELD_RERANK_THRESHOLD_MS = 180  # 字段级 Rerank 阈值
