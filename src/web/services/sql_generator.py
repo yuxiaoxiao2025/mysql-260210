@@ -8,6 +8,7 @@ import logging
 import re
 from typing import List, Dict, Any, Optional, Tuple
 import pandas as pd
+from sqlalchemy.exc import SQLAlchemyError, NoSuchTableError
 
 from src.llm_client import LLMClient
 from src.db_manager import DatabaseManager
@@ -61,6 +62,18 @@ class SQLGenerator:
         # Conversation history for refine
         self._history: List[Dict[str, str]] = []
 
+    def _validate_identifier(self, name: str) -> bool:
+        """Validate database identifier (table/schema name).
+
+        MySQL identifier rules:
+        - Max 64 characters
+        - Start with letter or underscore
+        - Contain only alphanumeric, underscore
+        """
+        if not name or len(name) > 64:
+            return False
+        return bool(re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name))
+
     def _build_table_context(
         self,
         table_names: List[str],
@@ -79,14 +92,34 @@ class SQLGenerator:
 
         for table_name in table_names:
             try:
-                schema = self.db_manager.get_table_schema(table_name)
+                # Parse schema.table format
+                parts = table_name.split('.', 1)
+                db_schema = parts[0] if len(parts) > 1 else ''
+                tbl_name = parts[1] if len(parts) > 1 else parts[0]
+
+                # Validate identifiers
+                if db_schema and not self._validate_identifier(db_schema):
+                    logger.warning(f"Invalid schema name: {db_schema}")
+                    continue
+                if not tbl_name or not self._validate_identifier(tbl_name):
+                    logger.warning(f"Invalid table name: {tbl_name}")
+                    continue
+
+                # Get schema
+                if db_schema and tbl_name:
+                    schema = self.db_manager.get_table_schema_cross_db(db_schema, tbl_name)
+                else:
+                    schema = self.db_manager.get_table_schema(table_name)
+
                 columns = [f"{c['name']} ({c['type']})" for c in schema]
                 comment = schema[0].get('comment', '') if schema else ''
 
                 table_info = f"- 表名: {table_name}\n  - 注释: {comment}\n  - 列: {', '.join(columns)}"
                 context_parts.append(table_info)
+            except (SQLAlchemyError, NoSuchTableError) as e:
+                logger.warning(f"Database error getting schema for {table_name}: {e}")
             except Exception as e:
-                logger.warning(f"Failed to get schema for {table_name}: {e}")
+                logger.error(f"Unexpected error getting schema for {table_name}: {e}")
 
         # Add join paths if requested
         if include_join_paths and self.graph_service and len(table_names) > 1:
