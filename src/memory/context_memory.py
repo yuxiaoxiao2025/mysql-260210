@@ -18,9 +18,12 @@ logger = logging.getLogger(__name__)
 
 
 # 车牌号正则表达式
+# 支持普通车牌（5位）和新能源车牌（6位）
+# 普通车牌: 省份+字母+5位字母/数字 (如: 沪A12345)
+# 新能源车牌: 省份+字母+6位字母/数字 (如: 粤B12345D)
 PLATE_PATTERN = re.compile(
     r'[京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤青藏川宁琼]'
-    r'[A-Z][A-Z0-9]{4,5}[A-Z0-9]'
+    r'[A-Z][A-Z0-9]{5,6}'
 )
 
 
@@ -184,8 +187,12 @@ class ContextMemoryService:
         return entry
 
     def _extract_plates(self, text: str) -> List[str]:
-        """从文本中提取车牌号"""
-        return list(set(PLATE_PATTERN.findall(text)))
+        """从文本中提取车牌号，保持原始顺序"""
+        # 使用 dict 去重并保持顺序（Python 3.7+ dict 保持插入顺序）
+        seen = {}
+        for plate in PLATE_PATTERN.findall(text):
+            seen[plate] = None
+        return list(seen.keys())
 
     def get_current_plate(self) -> Optional[str]:
         """获取当前车牌"""

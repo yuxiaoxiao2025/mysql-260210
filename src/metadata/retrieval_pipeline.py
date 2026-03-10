@@ -14,6 +14,7 @@ import logging
 import time
 from typing import List, Optional, Tuple
 
+from src.config import RERANK_BUDGET_MS, FIELD_RERANK_THRESHOLD_MS
 from src.metadata.graph_store import GraphStore
 from src.metadata.rerank_service import RerankService
 from src.metadata.retrieval_agent import RetrievalAgent
@@ -26,9 +27,6 @@ from src.metadata.retrieval_models import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Threshold for field rerank (requires at least 180ms remaining)
-FIELD_RERANK_THRESHOLD_MS = 180
 
 
 class RetrievalPipeline:
@@ -56,7 +54,7 @@ class RetrievalPipeline:
 
     def __init__(
         self,
-        budget_ms: int = 1000,  # 从 500 改为 1000
+        budget_ms: int = RERANK_BUDGET_MS,
         env: str = "dev",
         agent: Optional[RetrievalAgent] = None,
         rerank_service: Optional[RerankService] = None,

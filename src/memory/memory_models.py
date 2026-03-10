@@ -147,12 +147,29 @@ class ConceptStore(BaseModel):
         return self.concepts.get(concept_id)
 
     def find_by_user_term(self, term: str) -> Optional[ConceptMapping]:
-        """根据用户说法查找概念"""
+        """
+        根据用户说法查找概念。
+
+        如果多个概念包含相同的用户说法，返回置信度最高的概念。
+
+        Args:
+            term: 用户说法
+
+        Returns:
+            匹配的概念映射，未找到则返回 None
+        """
         term_lower = term.lower()
+        matches: List[ConceptMapping] = []
+
         for concept in self.concepts.values():
             if term_lower in [t.lower() for t in concept.user_terms]:
-                return concept
-        return None
+                matches.append(concept)
+
+        if not matches:
+            return None
+
+        # 返回置信度最高的概念
+        return max(matches, key=lambda c: c.confidence)
 
     def get_all_concepts(self) -> List[ConceptMapping]:
         """获取所有概念"""
