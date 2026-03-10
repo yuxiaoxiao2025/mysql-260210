@@ -99,7 +99,7 @@ class ContextMemoryService:
         """保存对话记忆到文件"""
         try:
             data = {
-                "entries": [entry.model_dump() for entry in self.memory.entries],
+                "entries": [entry.model_dump(mode="json") for entry in self.memory.entries],
                 "current_plate": self.memory.current_plate,
                 "current_park": self.memory.current_park,
                 "current_intent": self.memory.current_intent,
@@ -110,7 +110,7 @@ class ContextMemoryService:
             }
 
             with open(self.storage_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+                json.dump(data, f, ensure_ascii=False, indent=2)
 
             logger.debug(f"Saved {len(self.memory.entries)} context entries")
 

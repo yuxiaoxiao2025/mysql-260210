@@ -89,13 +89,13 @@ class ConceptStoreService:
                 "version": self.store.version,
                 "last_updated": self.store.last_updated.isoformat(),
                 "concepts": {
-                    concept_id: concept.model_dump()
+                    concept_id: concept.model_dump(mode="json")
                     for concept_id, concept in self.store.concepts.items()
                 }
             }
 
             with open(self.storage_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+                json.dump(data, f, ensure_ascii=False, indent=2)
 
             logger.debug(f"Saved {len(self.store.concepts)} concepts to storage")
 
@@ -175,17 +175,20 @@ class ConceptStoreService:
 
         Args:
             concept_id: 概念ID
-            updates: 更新内容
+            updates: 更新内容 (只允许更新: user_terms, database_mapping, description)
 
         Returns:
             是否更新成功
         """
+        # 允许更新的字段白名单
+        ALLOWED_FIELDS = {"user_terms", "database_mapping", "description"}
+
         concept = self.store.get_concept(concept_id)
         if not concept:
             return False
 
         for key, value in updates.items():
-            if hasattr(concept, key):
+            if key in ALLOWED_FIELDS and hasattr(concept, key):
                 setattr(concept, key, value)
 
         concept.updated_at = datetime.now()
