@@ -232,20 +232,21 @@ def main():
                 else:
                     st.error(f"❌ Query failed: {error}")
 
-            # Refine SQL
-            with st.expander("✏️ Refine Query"):
-                refine_hint = st.text_input("修改要求:", placeholder="e.g., 添加日期过滤条件")
-                if st.button("Apply Refinement") and refine_hint:
-                    sql_generator = services["sql_generator"]
-                    refined_sql = sql_generator.refine_sql(
-                        user_query=state_manager.current_query,
-                        current_sql=state_manager.generated_sql,
-                        selected_tables=state_manager.selected_tables,
-                        refinement_hint=refine_hint
-                    )
-                    if refined_sql:
-                        state_manager.generated_sql = refined_sql
-                        st.rerun()
+            # Refine SQL - outside expander to avoid nesting
+            st.divider()
+            st.subheader("✏️ Refine Query")
+            refine_hint = st.text_input("修改要求:", placeholder="e.g., 添加日期过滤条件")
+            if st.button("Apply Refinement") and refine_hint:
+                sql_generator = services["sql_generator"]
+                refined_sql = sql_generator.refine_sql(
+                    user_query=state_manager.current_query,
+                    current_sql=state_manager.generated_sql,
+                    selected_tables=state_manager.selected_tables,
+                    refinement_hint=refine_hint
+                )
+                if refined_sql:
+                    state_manager.generated_sql = refined_sql
+                    st.rerun()
         else:
             st.info("Select tables and click Generate SQL")
 

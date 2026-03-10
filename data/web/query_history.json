@@ -1,0 +1,51 @@
+[
+  {
+    "timestamp": "2026-03-10T17:38:30.341268",
+    "query": "查询停车订单信息\n",
+    "selected_tables": [
+      "p210303122900.tb_outpark_infos202405"
+    ],
+    "generated_sql": null
+  },
+  {
+    "timestamp": "2026-03-10T17:42:02.711790",
+    "query": "查询停车订单信息",
+    "selected_tables": [
+      "p210303122900.tb_outpark_infos202405"
+    ],
+    "generated_sql": null
+  },
+  {
+    "timestamp": "2026-03-10T17:43:47.174389",
+    "query": "查询沪BAB1565信息",
+    "selected_tables": [
+      "p210303122900.tb_outpark_infos202405",
+      "parkcloud.plate_icbc_agreement"
+    ],
+    "generated_sql": null
+  },
+  {
+    "timestamp": "2026-03-10T17:46:44.349446",
+    "query": "查询停车订单信息",
+    "selected_tables": [
+      "p210303122900.tb_outpark_infos202405"
+    ],
+    "generated_sql": null
+  },
+  {
+    "timestamp": "2026-03-10T17:49:48.130187",
+    "query": "查询停车订单信息",
+    "selected_tables": [
+      "p210303122900.tb_outpark_infos202405"
+    ],
+    "generated_sql": null
+  },
+  {
+    "timestamp": "2026-03-10T17:53:55.884114",
+    "query": "查询停车订单信息",
+    "selected_tables": [
+      "p210303122900.tb_outpark_infos202405"
+    ],
+    "generated_sql": null
+  }
+]
