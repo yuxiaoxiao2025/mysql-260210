@@ -95,8 +95,7 @@ def render_graph_view(
         directed=True,
         physics=True,
         hierarchical=False,
-        interaction={"hover": True, "drag": True, "zoom": True},
-        layout={"type": "force", "physics": {"barnesHut": {"gravitationalConstant": -3000}}},
+        interaction={"hover": True},  # Only keep supported parameter
         nodes={"font": {"size": 14, "face": "Arial"}},
         edges={"font": {"size": 10, "face": "Arial"}},
     )
