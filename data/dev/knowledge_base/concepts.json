@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "last_updated": "2026-03-11T10:20:15.242778",
+  "last_updated": "2026-03-11T12:41:20.287093",
   "concepts": {
     "internal_vehicle": {
       "concept_id": "internal_vehicle",
@@ -125,7 +125,7 @@
       "database_mapping": {
         "user_description": "A B"
       },
-      "description": "A B",
+      "description": "A B C",
       "learned_from": "startup_wizard",
       "created_at": "2026-03-11T10:06:44.525094",
       "updated_at": "2026-03-11T10:06:44.525094",
@@ -159,6 +159,126 @@
       "learned_from": "dialogue",
       "created_at": "2026-03-11T10:20:15.242778",
       "updated_at": "2026-03-11T10:20:15.242778",
+      "confirmed_count": 0,
+      "confidence": 0.5
+    },
+    "learned_bank_park": {
+      "concept_id": "learned_bank_park",
+      "user_terms": [
+        "bank_park"
+      ],
+      "database_mapping": {
+        "user_description": "这个是一个空表，没有用"
+      },
+      "description": "这个是一个空表，没有用",
+      "learned_from": "startup_wizard",
+      "created_at": "2026-03-11T12:38:03.774111",
+      "updated_at": "2026-03-11T12:38:03.774111",
+      "confirmed_count": 0,
+      "confidence": 0.5
+    },
+    "learned_basic_bank": {
+      "concept_id": "learned_basic_bank",
+      "user_terms": [
+        "basic_bank"
+      ],
+      "database_mapping": {
+        "user_description": "是多个银行支付的字典表，具体干啥我也不清楚，基本上不用"
+      },
+      "description": "是多个银行支付的字典表，具体干啥我也不清楚，基本上不用",
+      "learned_from": "startup_wizard",
+      "created_at": "2026-03-11T12:38:44.578005",
+      "updated_at": "2026-03-11T12:38:44.578005",
+      "confirmed_count": 0,
+      "confidence": 0.5
+    },
+    "learned_bc_message": {
+      "concept_id": "learned_bc_message",
+      "user_terms": [
+        "bc_message"
+      ],
+      "database_mapping": {
+        "user_description": "这个表不用"
+      },
+      "description": "这个表不用",
+      "learned_from": "startup_wizard",
+      "created_at": "2026-03-11T12:39:03.087228",
+      "updated_at": "2026-03-11T12:39:03.087228",
+      "confirmed_count": 0,
+      "confidence": 0.5
+    },
+    "learned_before_order": {
+      "concept_id": "learned_before_order",
+      "user_terms": [
+        "before_order"
+      ],
+      "database_mapping": {
+        "user_description": "功能是："
+      },
+      "description": "功能是：",
+      "learned_from": "startup_wizard",
+      "created_at": "2026-03-11T12:41:20.280596",
+      "updated_at": "2026-03-11T12:41:20.280596",
+      "confirmed_count": 0,
+      "confidence": 0.5
+    },
+    "learned_car_owner": {
+      "concept_id": "learned_car_owner",
+      "user_terms": [
+        "car_owner"
+      ],
+      "database_mapping": {
+        "user_description": "存储停车场\"预支付订单\"信息"
+      },
+      "description": "存储停车场\"预支付订单\"信息",
+      "learned_from": "startup_wizard",
+      "created_at": "2026-03-11T12:41:20.282579",
+      "updated_at": "2026-03-11T12:41:20.282579",
+      "confirmed_count": 0,
+      "confidence": 0.5
+    },
+    "learned_car_owner_ali": {
+      "concept_id": "learned_car_owner_ali",
+      "user_terms": [
+        "car_owner_ali"
+      ],
+      "database_mapping": {
+        "user_description": "核心用途："
+      },
+      "description": "核心用途：",
+      "learned_from": "startup_wizard",
+      "created_at": "2026-03-11T12:41:20.284134",
+      "updated_at": "2026-03-11T12:41:20.284134",
+      "confirmed_count": 0,
+      "confidence": 0.5
+    },
+    "learned_car_owner_ali_plate": {
+      "concept_id": "learned_car_owner_ali_plate",
+      "user_terms": [
+        "car_owner_ali_plate"
+      ],
+      "database_mapping": {
+        "user_description": "1."
+      },
+      "description": "1.",
+      "learned_from": "startup_wizard",
+      "created_at": "2026-03-11T12:41:20.285092",
+      "updated_at": "2026-03-11T12:41:20.285092",
+      "confirmed_count": 0,
+      "confidence": 0.5
+    },
+    "learned_car_owner_plate": {
+      "concept_id": "learned_car_owner_plate",
+      "user_terms": [
+        "car_owner_plate"
+      ],
+      "database_mapping": {
+        "user_description": "提前缓存支付URL（表注释明确写了：\"提前付缓存支付url\"）"
+      },
+      "description": "提前缓存支付URL（表注释明确写了：\"提前付缓存支付url\"）",
+      "learned_from": "startup_wizard",
+      "created_at": "2026-03-11T12:41:20.287093",
+      "updated_at": "2026-03-11T12:41:20.287093",
       "confirmed_count": 0,
       "confidence": 0.5
     }
