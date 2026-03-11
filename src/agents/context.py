@@ -1,5 +1,5 @@
 """Agent 上下文定义"""
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Any, Optional, List
 from uuid import uuid4, UUID
 
@@ -38,6 +38,8 @@ class AgentContext(BaseModel):
         preview_data: 预览数据 (可选)
         execution_result: 执行结果 (可选)
     """
+    model_config = ConfigDict(json_encoders={})
+
     user_input: str = Field(..., description="用户原始输入")
     trace_id: UUID = Field(default_factory=uuid4, description="追踪ID")
     step_history: List[str] = Field(default_factory=list, description="步骤历史记录")
@@ -46,7 +48,3 @@ class AgentContext(BaseModel):
     is_safe: Optional[bool] = Field(default=None, description="安全检查结果")
     preview_data: Optional[Any] = Field(default=None, description="预览数据")
     execution_result: Optional[Any] = Field(default=None, description="执行结果")
-
-    class Config:
-        """Pydantic 配置"""
-        json_encoders = {}
