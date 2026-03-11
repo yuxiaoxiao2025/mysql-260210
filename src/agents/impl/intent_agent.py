@@ -1,9 +1,10 @@
 """Intent Agent 实现"""
+import re
+
 from src.agents.base import BaseAgent
 from src.agents.config import IntentAgentConfig
 from src.agents.context import AgentContext, IntentModel
 from src.agents.models import AgentResult
-# Integration: Import existing module
 from src.intent.intent_recognizer import IntentRecognizer
 
 
@@ -13,7 +14,7 @@ class IntentAgent(BaseAgent):
     封装 IntentRecognizer，将识别结果映射到 IntentModel。
     """
 
-    def __init__(self, config: IntentAgentConfig, llm_client=None, knowledge_loader=None):
+    def __init__(self, config: IntentAgentConfig, llm_client=None, knowledge_loader=None, concept_store=None):
         """初始化 IntentAgent
 
         Args:
@@ -22,6 +23,8 @@ class IntentAgent(BaseAgent):
             knowledge_loader: 知识库加载器（可选，用于创建 IntentRecognizer）
         """
         super().__init__(config)
+        self.llm_client = llm_client
+        self.concept_store = concept_store
         self.recognizer = IntentRecognizer(llm_client, knowledge_loader)
 
     def _run_impl(self, context: AgentContext) -> AgentResult:
@@ -46,18 +49,33 @@ class IntentAgent(BaseAgent):
             or recognized.confidence < self.config.confidence_threshold
         )
 
+        reasoning = recognized.reasoning or ""
+        unknown_term = self._extract_unknown_term(reasoning)
+        if unknown_term:
+            need_clarify = True
+            reasoning = f"{reasoning}。请问“{unknown_term}”具体指什么？"
+
         # Map to Context Model
         context.intent = IntentModel(
             type=intent_type,
             confidence=recognized.confidence,
             params=recognized.params,
             operation_id=recognized.operation_id,
-            reasoning=recognized.reasoning,
+            reasoning=reasoning,
             sql=recognized.fallback_sql,
             need_clarify=need_clarify
         )
 
         return AgentResult(success=True, data=context.intent)
+
+    def _extract_unknown_term(self, reasoning: str) -> str | None:
+        """从识别推理中提取未知概念词。"""
+        if not reasoning:
+            return None
+        match = re.search(r"Unknown concept:\s*'([^']+)'", reasoning, flags=re.IGNORECASE)
+        if match:
+            return match.group(1)
+        return None
 
     def _infer_intent_type(self, operation_id: str | None) -> str:
         """从 operation_id 推断意图类型

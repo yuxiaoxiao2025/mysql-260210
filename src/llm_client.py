@@ -45,6 +45,7 @@ class LLMClient:
 
     def __init__(self, allowed_tables: Optional[list[str]] = None):
         self.api_key = os.getenv("DASHSCOPE_API_KEY")
+        self.client = self._build_chat_client()
         self.last_result = None  # Store last result for transaction preview
         self.conversation_history = []  # Store conversation history (max 5 rounds)
         self.max_history_rounds = 5  # Maximum number of conversation rounds to keep
@@ -92,6 +93,20 @@ class LLMClient:
             print("⚠️  Warning: DASHSCOPE_API_KEY not found in environment variables.")
         else:
             dashscope.api_key = self.api_key
+
+    def _build_chat_client(self):
+        """构建 OpenAI 兼容风格客户端（优先用于 chat_stream）。"""
+        if not self.api_key:
+            return None
+        try:
+            from openai import OpenAI
+            return OpenAI(
+                api_key=self.api_key,
+                base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
+            )
+        except Exception:
+            # 兼容无 openai 依赖场景：保留 None，chat_stream 会自动降级到 Generation.call
+            return None
 
     def _get_env_bool(self, key: str, default: bool = False) -> bool:
         """从环境变量读取布尔值配置"""
@@ -815,6 +830,98 @@ Return ONLY a JSON object with keys: `sql`, `filename`, `sheet_name`, `reasoning
         except Exception as e:
             logger.error(f"流式生成失败: {e}")
             yield {'error': str(e)}
+
+    def chat_stream(self, messages: list[dict], enable_thinking: bool = False):
+        """
+        Stream chat response with thinking support
+        
+        Args:
+            messages: List of message dicts
+            enable_thinking: Whether to enable thinking mode
+            
+        Yields:
+            Dict with type ('thinking', 'content', 'usage') and content
+        """
+        try:
+            if self.client:
+                response = self.client.chat.completions.create(
+                    model="qwen-plus",
+                    messages=messages,
+                    stream=True,
+                    extra_body={"enable_thinking": enable_thinking},
+                    stream_options={"include_usage": True}
+                )
+            else:
+                api_params = {
+                    'model': 'qwen-plus',
+                    'messages': messages,
+                    'result_format': 'message',
+                    'stream': True,
+                }
+                if enable_thinking:
+                    api_params['enable_thinking'] = True
+                response = Generation.call(**api_params)
+
+            for chunk in response:
+                choice = self._extract_stream_choice(chunk)
+                if choice:
+                    thinking = getattr(choice, "reasoning_content", None)
+                    content = getattr(choice, "content", None)
+                    if thinking:
+                        yield {"type": "thinking", "content": str(thinking)}
+                    if content:
+                        yield {"type": "content", "content": str(content)}
+
+                usage = getattr(chunk, "usage", None)
+                if usage and hasattr(usage, "input_tokens"):
+                    raw_input_tokens = getattr(usage, 'input_tokens', None)
+                    raw_output_tokens = getattr(usage, 'output_tokens', None)
+                    if not isinstance(raw_input_tokens, int) and not isinstance(raw_output_tokens, int):
+                        continue
+
+                    input_tokens = raw_input_tokens if isinstance(raw_input_tokens, int) else 0
+                    output_tokens = raw_output_tokens if isinstance(raw_output_tokens, int) else 0
+                    if not isinstance(input_tokens, int):
+                        input_tokens = 0
+                    if not isinstance(output_tokens, int):
+                        output_tokens = 0
+                    usage_info = {
+                        'input_tokens': input_tokens,
+                        'output_tokens': output_tokens,
+                    }
+                    prompt_details = getattr(usage, 'prompt_tokens_details', None)
+                    if prompt_details:
+                        cached_tokens = getattr(prompt_details, 'cached_tokens', 0)
+                        usage_info['cached_tokens'] = cached_tokens if isinstance(cached_tokens, int) else 0
+
+                    self._metrics_collector.record_cache_metrics(
+                        operation="chat_stream",
+                        cache_hit=usage_info.get("cached_tokens", 0) > 0,
+                        cached_tokens=usage_info.get("cached_tokens", 0),
+                        total_input_tokens=usage_info["input_tokens"],
+                        total_output_tokens=usage_info["output_tokens"],
+                        model="qwen-plus"
+                    )
+                    yield {"type": "usage", "usage": usage_info}
+        except Exception as e:
+            logger.error(f"Chat stream failed: {e}")
+            yield {"type": "error", "content": str(e)}
+
+    def _extract_stream_choice(self, chunk: Any):
+        """兼容 OpenAI/DashScope 两种流式 chunk 结构，返回含 content/reasoning_content 的对象。"""
+        if hasattr(chunk, "choices") and chunk.choices:
+            delta = getattr(chunk.choices[0], "delta", None)
+            if delta:
+                return delta
+            message = getattr(chunk.choices[0], "message", None)
+            if message:
+                return message
+        if hasattr(chunk, "output") and chunk.output and getattr(chunk.output, "choices", None):
+            choice = chunk.output.choices[0]
+            message = getattr(choice, "message", None)
+            if message:
+                return message
+        return None
 
     def chat(self, user_input: str) -> str:
         """

@@ -51,6 +51,8 @@ from src.memory.context_memory import ContextMemoryService
 from src.dialogue.startup_wizard import StartupWizard
 from src.dialogue.dialogue_engine import DialogueEngine, DialogueState
 from src.agents.orchestrator import Orchestrator
+from src.agents.impl.review_agent import ReviewAgent
+from src.agents.config import ReviewAgentConfig
 
 def print_welcome(agent_mode=False):
     print("=" * 60)
@@ -212,7 +214,8 @@ def main():
             try:
                 orchestrator = Orchestrator(
                     llm_client=llm,
-                    knowledge_loader=knowledge_loader
+                    knowledge_loader=knowledge_loader,
+                    review_agent=ReviewAgent(ReviewAgentConfig(name="review"))
                 )
                 logger.info("Orchestrator 初始化成功")
                 print("[OK] Orchestrator 初始化成功！")
@@ -400,7 +403,7 @@ def main():
 
             # 如果启用了 agent-mode，使用 Orchestrator 处理
             if args.agent_mode and orchestrator:
-                print("🤖 使用 Orchestrator 处理请求...")
+                print("使用 Orchestrator 处理请求...")
                 agent_context = orchestrator.process(user_input)
 
                 # 处理需要澄清的情况
@@ -414,28 +417,36 @@ def main():
 
                 # 处理安全检查失败
                 if agent_context.is_safe is False:
-                    print("❌ 安全检查未通过，操作已取消")
+                    print("安全检查未通过，操作已取消")
                     continue
 
-                # 处理预览数据 (mutation 操作)
-                if agent_context.preview_data:
-                    print("\n📊 操作预览:")
-                    print(f"{agent_context.preview_data}")
-
-                    # 询问用户确认
-                    confirm = input("\n❓ 确认执行此操作？(y/n) > ")
-                    if confirm.lower() != 'y':
-                        print("❌ 操作已取消")
+                # 处理 ReviewAgent 确认分支
+                if (
+                    hasattr(agent_context.execution_result, "next_action")
+                    and agent_context.execution_result.next_action == "ask_user"
+                ):
+                    print(f"\n[执行确认] {agent_context.execution_result.message}")
+                    confirm = input("确认执行此操作？(y/n) > ").strip().lower()
+                    if confirm != "y":
+                        print("操作已取消")
                         continue
-
-                    # 用户确认后，重新执行带确认的操作
-                    # 注意：这里简化处理，实际应该通过 Orchestrator 的反馈机制
-                    print("⏳ 正在执行操作...")
+                    agent_context = orchestrator.process(user_input, user_confirmation=True)
 
                 # 显示执行结果
                 if agent_context.execution_result:
-                    print(f"\n✅ 执行结果:")
-                    print(f"{agent_context.execution_result}")
+                    if hasattr(agent_context.execution_result, "__iter__") and not isinstance(
+                        agent_context.execution_result, (dict, str, bytes)
+                    ):
+                        print("\n[流式输出]")
+                        for chunk in agent_context.execution_result:
+                            if chunk.get("type") == "thinking":
+                                print(f"[thinking] {chunk.get('content', '')}", end="", flush=True)
+                            elif chunk.get("type") == "content":
+                                print(chunk.get("content", ""), end="", flush=True)
+                        print()
+                    else:
+                        print("\n执行结果:")
+                        print(f"{agent_context.execution_result}")
 
                     # 记录操作指标
                     if hasattr(agent_context, 'intent') and agent_context.intent:
@@ -447,7 +458,7 @@ def main():
                             operation_id=agent_context.intent.operation_id if hasattr(agent_context.intent, 'operation_id') else "unknown"
                         )
                 else:
-                    print("⚠️  未获得执行结果")
+                    print("未获得执行结果")
 
                 continue
 

@@ -48,3 +48,4 @@ class AgentContext(BaseModel):
     is_safe: Optional[bool] = Field(default=None, description="安全检查结果")
     preview_data: Optional[Any] = Field(default=None, description="预览数据")
     execution_result: Optional[Any] = Field(default=None, description="执行结果")
+    chat_history: List[dict] = Field(default_factory=list, description="多轮对话历史")

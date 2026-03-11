@@ -3,6 +3,7 @@ from src.agents.context import AgentContext
 from src.agents.config import IntentAgentConfig, SecurityAgentConfig, BaseAgentConfig
 from src.agents.impl.intent_agent import IntentAgent
 from src.agents.impl.retrieval_agent import RetrievalAgent
+from src.agents.impl.knowledge_agent import KnowledgeAgent
 from src.agents.impl.security_agent import SecurityAgent
 from src.agents.impl.preview_agent import PreviewAgent
 from src.agents.impl.execution_agent import ExecutionAgent
@@ -26,8 +27,8 @@ class Orchestrator:
         execution_agent: ExecutionAgent 实例
     """
 
-    def __init__(self, intent_agent=None, retrieval_agent=None, security_agent=None,
-                 preview_agent=None, execution_agent=None, llm_client=None, knowledge_loader=None):
+    def __init__(self, intent_agent=None, retrieval_agent=None, knowledge_agent=None, security_agent=None,
+                 preview_agent=None, execution_agent=None, review_agent=None, llm_client=None, knowledge_loader=None):
         """初始化 Orchestrator
 
         支持依赖注入用于测试，否则初始化默认 Agent。
@@ -47,14 +48,19 @@ class Orchestrator:
             knowledge_loader=knowledge_loader
         )
         self.retrieval_agent = retrieval_agent or RetrievalAgent(BaseAgentConfig(name="retrieval"))
+        self.knowledge_agent = knowledge_agent or KnowledgeAgent(
+            BaseAgentConfig(name="knowledge"),
+            llm_client=llm_client
+        )
         self.security_agent = security_agent or SecurityAgent(SecurityAgentConfig(name="security"))
         self.preview_agent = preview_agent or PreviewAgent(BaseAgentConfig(name="preview"))
+        self.review_agent = review_agent
         self.execution_agent = execution_agent or ExecutionAgent(
             BaseAgentConfig(name="execution"),
             llm_client=llm_client
         )
 
-    def process(self, user_input: str) -> AgentContext:
+    def process(self, user_input: str, user_confirmation: bool | None = None) -> AgentContext:
         """处理用户输入
 
         按照标准流程执行 Agent 协调:
@@ -90,31 +96,44 @@ class Orchestrator:
         if retrieval_res.success:
             context.step_history.append("retrieval")
 
-        # 3. Security
+        # 3. Knowledge (for chat/qa)
         if context.intent and context.intent.type in ["chat", "qa"]:
-            # Skip security check for chat/qa
-            context.is_safe = True
-            context.step_history.append("security_skipped")
-        else:
-            if not self.security_agent.run(context).success:
-                context.step_history.append("security_failed")
+            knowledge_res = self.knowledge_agent.run(context)
+            if not knowledge_res.success:
+                context.step_history.append("knowledge_failed")
                 return context
-            context.step_history.append("security")
+            context.execution_result = knowledge_res.data
+            context.step_history.append("knowledge")
+            context.step_history.append("execution")
+            return context
 
-        # 4. Preview (if mutation)
+        # 4. Security
+        if not self.security_agent.run(context).success:
+            context.step_history.append("security_failed")
+            return context
+        context.step_history.append("security")
+
+        # 5. Preview (if mutation)
         if context.intent and context.intent.type == "mutation":
             preview_res = self.preview_agent.run(context)
             if preview_res.success:
                 context.step_history.append("preview")
 
-        # 5. Execution (if query or confirmed mutation or chat/qa)
-        if context.intent and context.intent.type in ["chat", "qa"]:
-            # For now, let's just use ExecutionAgent, but we might need a dedicated ChatAgent
-            # ExecutionAgent might not know how to handle "chat" type.
-            # Let's add a simple chat handling logic here or inside ExecutionAgent.
-            # Ideally, we should add a ChatAgent to Orchestrator.
-            pass
-        
+        # 6. Review (if provided)
+        if self.review_agent and user_confirmation is not True:
+            review_res = self.review_agent.run(context)
+            if review_res.next_action == "ask_user":
+                context.execution_result = review_res
+                context.step_history.append("review")
+                return context
+            if not review_res.success:
+                context.step_history.append("review_failed")
+                return context
+            context.step_history.append("review")
+        elif user_confirmation is True:
+            context.step_history.append("review_confirmed")
+
+        # 7. Execution
         self.execution_agent.run(context)
         context.step_history.append("execution")
 

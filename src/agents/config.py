@@ -28,3 +28,8 @@ class SecurityAgentConfig(BaseAgentConfig):
     """安全检查 Agent 配置"""
     # 继承自 BaseAgentConfig，可添加安全检查特定配置
     pass
+
+
+class ReviewAgentConfig(BaseAgentConfig):
+    """执行前复核 Agent 配置"""
+    auto_run_query: bool = Field(default=True, description="是否自动通过查询类请求")
