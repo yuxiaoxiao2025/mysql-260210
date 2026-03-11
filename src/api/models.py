@@ -2,6 +2,25 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 
 
+# ==================== 配置相关 ====================
+
+class LLMConfig(BaseModel):
+    """LLM 配置模型"""
+    enable_structured_output: bool = False
+    enable_thinking: bool = False
+    enable_stream: bool = False
+    enable_prompt_cache: bool = False
+
+
+class LLMConfigResponse(BaseModel):
+    """LLM 配置响应"""
+    enable_structured_output: bool = False
+    enable_thinking: bool = False
+    enable_stream: bool = False
+    enable_prompt_cache: bool = False
+    model: str = "qwen-plus"
+
+
 # ==================== 查询相关 ====================
 
 class QueryAnalyzeRequest(BaseModel):

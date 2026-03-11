@@ -1,7 +1,11 @@
 """
 智能查询 API 路由
 """
+import json
+import asyncio
+from typing import AsyncGenerator
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from src.api.deps import get_query_engine, get_llm, get_cache, get_db, get_learner
 from src.api.models import (
     QueryAnalyzeRequest,
@@ -141,6 +145,64 @@ async def analyze_query_legacy(
         selected_tables=result.get("selected_tables", []),
         suggestions=result.get("suggestions", [])
     )
+
+
+@router.post("/confirm_stream")
+async def confirm_query_stream(
+    request: QueryConfirmRequest,
+    engine=Depends(get_query_engine),
+    llm=Depends(get_llm),
+    cache=Depends(get_cache),
+    learner=Depends(get_learner)
+):
+    """
+    流式确认查询并生成 SQL
+
+    使用 SSE 返回增量内容，包括：
+    - content: 生成的内容增量
+    - reasoning: 思考过程（如果启用 thinking 模式）
+    - done: 是否完成
+    - result: 最终结果（当 done=true 时）
+    - usage: token 使用情况
+    """
+    async def stream_generator():
+        try:
+            # 1. 记录用户选择
+            entities = engine._extract_entities(request.query)
+            learner.learn(entities, request.selected_tables, request.query)
+
+            # 2. 构建 Schema 上下文
+            schema_context = _build_schema_context(cache, request.selected_tables)
+
+            # 3. 调用 LLM 流式生成 SQL
+            async for chunk in _async_generator_wrapper(
+                llm.generate_sql_stream(request.query, schema_context)
+            ):
+                # 格式化 SSE 数据
+                sse_data = f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                yield sse_data.encode('utf-8')
+
+        except Exception as e:
+            error_chunk = {'error': str(e)}
+            yield f"data: {json.dumps(error_chunk, ensure_ascii=False)}\n\n".encode('utf-8')
+
+    return StreamingResponse(
+        stream_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+async def _async_generator_wrapper(sync_generator):
+    """将同步生成器包装为异步生成器"""
+    for item in sync_generator:
+        yield item
+        # 小延迟允许事件循环处理其他任务
+        await asyncio.sleep(0)
 
 
 def _build_schema_context(cache, table_names: list) -> str:

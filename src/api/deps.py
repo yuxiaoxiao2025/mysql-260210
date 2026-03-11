@@ -1,6 +1,7 @@
 """
 依赖注入模块 - 统一管理所有组件的实例化
 """
+import os
 from functools import lru_cache
 from src.db_manager import DatabaseManager
 from src.llm_client import LLMClient
@@ -8,6 +9,25 @@ from src.cache.schema_cache import SchemaCache
 from src.matcher.table_matcher import TableMatcher
 from src.learner.preference_learner import PreferenceLearner
 from src.matcher.smart_query_engine import SmartQueryEngine
+
+
+def get_llm_config() -> dict:
+    """获取 LLM 配置（从环境变量读取）"""
+    def _parse_bool(key: str, default: bool = False) -> bool:
+        value = os.getenv(key, "").lower()
+        if value in ("1", "true", "yes", "on"):
+            return True
+        if value in ("0", "false", "no", "off"):
+            return False
+        return default
+
+    return {
+        "enable_structured_output": _parse_bool("ENABLE_STRUCTURED_OUTPUT", False),
+        "enable_thinking": _parse_bool("ENABLE_THINKING", False),
+        "enable_stream": _parse_bool("ENABLE_STREAM", False),
+        "enable_prompt_cache": _parse_bool("ENABLE_PROMPT_CACHE", False),
+        "model": os.getenv("LLM_MODEL", "qwen-plus"),
+    }
 
 
 @lru_cache()

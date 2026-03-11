@@ -3,7 +3,7 @@ import json
 import logging
 import dashscope
 from dashscope import Generation
-from typing import Dict, Optional, Any, TYPE_CHECKING
+from typing import Dict, Optional, Any, TYPE_CHECKING, AsyncGenerator
 
 if TYPE_CHECKING:
     from src.metadata.retrieval_agent import RetrievalAgent
@@ -11,17 +11,67 @@ if TYPE_CHECKING:
 
 from src.context import SlotTracker, QueryRewriter
 from src.constraint import TableValidator
+from src.monitoring.metrics_collector import get_metrics_collector, CacheMetrics
 
 logger = logging.getLogger(__name__)
 
 
+class StructuredOutputError(Exception):
+    """结构化输出相关错误"""
+    pass
+
+
+class JsonParseError(StructuredOutputError):
+    """JSON 解析错误"""
+    def __init__(self, message: str, raw_content: str = None):
+        super().__init__(message)
+        self.raw_content = raw_content
+
+    def __str__(self):
+        base_msg = super().__str__()
+        if self.raw_content:
+            return f"{base_msg} | Raw content: {self.raw_content[:200]}"
+        return base_msg
+
+
 class LLMClient:
+    """LLM 客户端 - 支持结构化输出、流式输出、深度思考和上下文缓存"""
+
+    # 配置开关默认值
+    DEFAULT_ENABLE_STRUCTURED_OUTPUT = False
+    DEFAULT_ENABLE_THINKING = False
+    DEFAULT_ENABLE_STREAM = False
+    DEFAULT_ENABLE_PROMPT_CACHE = False
+
     def __init__(self, allowed_tables: Optional[list[str]] = None):
         self.api_key = os.getenv("DASHSCOPE_API_KEY")
         self.last_result = None  # Store last result for transaction preview
         self.conversation_history = []  # Store conversation history (max 5 rounds)
         self.max_history_rounds = 5  # Maximum number of conversation rounds to keep
         self.retrieval_agent: Optional["RetrievalAgent"] = None  # Lazy load
+
+        # 配置开关（从环境变量读取，默认关闭以保持兼容）
+        self.enable_structured_output = self._get_env_bool(
+            "ENABLE_STRUCTURED_OUTPUT", self.DEFAULT_ENABLE_STRUCTURED_OUTPUT
+        )
+        self.enable_thinking = self._get_env_bool(
+            "ENABLE_THINKING", self.DEFAULT_ENABLE_THINKING
+        )
+        self.enable_stream = self._get_env_bool(
+            "ENABLE_STREAM", self.DEFAULT_ENABLE_STREAM
+        )
+        self.enable_prompt_cache = self._get_env_bool(
+            "ENABLE_PROMPT_CACHE", self.DEFAULT_ENABLE_PROMPT_CACHE
+        )
+
+        # 记录配置状态
+        logger.info(
+            f"LLMClient initialized with config: "
+            f"structured_output={self.enable_structured_output}, "
+            f"thinking={self.enable_thinking}, "
+            f"stream={self.enable_stream}, "
+            f"prompt_cache={self.enable_prompt_cache}"
+        )
 
         # Context enhancement components
         self.slot_tracker = SlotTracker()
@@ -34,11 +84,23 @@ class LLMClient:
             self.table_validator = TableValidator(allowed_tables)
             self._user_provided_tables = allowed_tables.copy()
 
+        # Metrics collector for cache tracking
+        self._metrics_collector = get_metrics_collector()
+
         if not self.api_key:
             logger.warning("DASHSCOPE_API_KEY not found in environment variables.")
             print("⚠️  Warning: DASHSCOPE_API_KEY not found in environment variables.")
         else:
             dashscope.api_key = self.api_key
+
+    def _get_env_bool(self, key: str, default: bool = False) -> bool:
+        """从环境变量读取布尔值配置"""
+        value = os.getenv(key, "").lower()
+        if value in ("1", "true", "yes", "on"):
+            return True
+        if value in ("0", "false", "no", "off"):
+            return False
+        return default
 
     def generate_sql(self, user_query: str, schema_context: str, error_context: Optional[str] = None, context: Optional[dict[str, str]] = None) -> dict[str, Any]:
         """
@@ -99,6 +161,11 @@ Return ONLY a JSON object with keys: `sql`, `filename`, `sheet_name`, `reasoning
 
         messages = [{'role': 'system', 'content': system_content}]
 
+        # 如果启用缓存，在 system message 上添加 cache_control
+        if self.enable_prompt_cache:
+            messages[0]['cache_control'] = {"type": "ephemeral"}
+            logger.debug("在 system message 上启用缓存控制")
+
         # Add Conversation History (Native Messages)
         if self.conversation_history:
             for prev_query, prev_result in self.conversation_history:
@@ -118,18 +185,35 @@ Return ONLY a JSON object with keys: `sql`, `filename`, `sheet_name`, `reasoning
         messages.append({'role': 'user', 'content': user_content})
 
         try:
-            # Use qwen-plus with JSON mode
-            response = Generation.call(
-                model='qwen-plus',
-                messages=messages,
-                result_format='message',
-                response_format={'type': 'json_object'}
-            )
-            
-            if response.status_code == 200:
-                content = response.output.choices[0].message.content
-                result = json.loads(content)
-                
+            # 构建 API 调用参数
+            api_params = {
+                'model': 'qwen-plus',
+                'messages': messages,
+                'result_format': 'message',
+            }
+
+            # 深度思考模式
+            if self.enable_thinking:
+                api_params['stream'] = True
+                api_params['enable_thinking'] = True
+                logger.debug("启用深度思考模式 (enable_thinking + stream)")
+            # 非思考模式下启用结构化输出
+            elif self.enable_structured_output:
+                api_params['response_format'] = {'type': 'json_object'}
+                logger.debug("启用结构化输出模式 (json_object)")
+
+            response = Generation.call(**api_params)
+
+            # 处理流式响应（thinking 模式）
+            if self.enable_thinking:
+                content = self._handle_thinking_stream(response)
+                # 尝试解析 JSON，如果失败则使用双阶段修复
+                try:
+                    result = self._parse_json_response(content)
+                except JsonParseError:
+                    logger.warning("Thinking 模式 JSON 解析失败，进入修复流程")
+                    result = self._fix_json_with_thinking(content, schema_context, rewritten_query)
+
                 # Apply defaults
                 result.setdefault('intent', 'query')
                 result.setdefault('preview_sql', None)
@@ -158,11 +242,299 @@ Return ONLY a JSON object with keys: `sql`, `filename`, `sheet_name`, `reasoning
                 self._add_to_history(user_query, result)
                 return result
             else:
-                raise Exception(f"API Error: {response.code} - {response.message}")
+                # 非流式响应处理
+                if response.status_code == 200:
+                    content = response.output.choices[0].message.content
+                    result = self._parse_json_response(content)
+
+                    # 记录缓存指标
+                    if self.enable_prompt_cache and hasattr(response, 'usage'):
+                        self._record_cache_metrics(response, 'generate_sql')
+
+                    # Apply defaults
+                    result.setdefault('intent', 'query')
+                    result.setdefault('preview_sql', None)
+                    result.setdefault('key_columns', [])
+                    result.setdefault('warnings', [])
+
+                    # Step 4: Validate SQL
+                    sql = result.get('sql', '')
+                    if sql and self.table_validator:
+                        is_valid, error_msg = self.table_validator.validate(sql)
+                        if not is_valid:
+                            logger.warning(f"Table validation failed: {error_msg}")
+                            result['warnings'].append(f"Table validation: {error_msg}")
+                            return {
+                                'sql': None,
+                                'filename': None,
+                                'sheet_name': None,
+                                'reasoning': f"Generated SQL contains unauthorized tables: {error_msg}",
+                                'intent': 'error',
+                                'preview_sql': None,
+                                'key_columns': [],
+                                'warnings': [f"Table validation failed: {error_msg}"]
+                            }
+
+                    self.last_result = result
+                    self._add_to_history(user_query, result)
+                    return result
+                else:
+                    raise Exception(f"API Error: {response.code} - {response.message}")
                 
+        except JsonParseError as e:
+            logger.error(f"JSON 解析错误: {e}")
+            raise JsonParseError(f"LLM generation failed: {str(e)}", raw_content=e.raw_content) from e
         except Exception as e:
             raise Exception(f"LLM generation failed: {str(e)}")
     
+    def _parse_json_response(self, content: str) -> Dict[str, Any]:
+        """
+        解析 JSON 响应，处理可能的解析错误
+        支持双阶段修复：先尝试直接解析，失败则尝试清理后解析
+
+        Args:
+            content: API 返回的原始内容
+
+        Returns:
+            解析后的字典
+
+        Raises:
+            JsonParseError: 当 JSON 解析失败时
+        """
+        # 第一阶段：直接解析
+        try:
+            return json.loads(content.strip())
+        except json.JSONDecodeError:
+            pass  # 继续第二阶段
+
+        # 第二阶段：清理后解析
+        try:
+            cleaned_content = content.strip()
+            # 移除代码块标记
+            if cleaned_content.startswith('```json'):
+                cleaned_content = cleaned_content[7:]
+            elif cleaned_content.startswith('```'):
+                cleaned_content = cleaned_content[3:]
+            if cleaned_content.endswith('```'):
+                cleaned_content = cleaned_content[:-3]
+            cleaned_content = cleaned_content.strip()
+
+            # 尝试找到 JSON 对象
+            start = cleaned_content.find('{')
+            end = cleaned_content.rfind('}')
+            if start != -1 and end != -1 and end > start:
+                json_str = cleaned_content[start:end + 1]
+                return json.loads(json_str)
+
+            # 如果找不到对象，尝试解析数组
+            start = cleaned_content.find('[')
+            end = cleaned_content.rfind(']')
+            if start != -1 and end != -1 and end > start:
+                json_str = cleaned_content[start:end + 1]
+                return json.loads(json_str)
+
+            raise json.JSONDecodeError("无法找到有效的 JSON 内容", cleaned_content, 0)
+
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON 解析失败: {e}")
+            logger.error(f"原始内容: {content[:500]}")
+            raise JsonParseError(
+                f"JSON parse error: {str(e)}",
+                raw_content=content[:500]
+            ) from e
+
+    def _fix_json_with_thinking(self, raw_content: str, schema_context: str, user_query: str) -> Dict[str, Any]:
+        """
+        当 thinking 模式返回非标准 JSON 时，使用非 thinking 模式修复为标准 JSON
+        这是双阶段 JSON 修复流程
+
+        Args:
+            raw_content: thinking 模式的原始输出（可能包含思考过程和 JSON）
+            schema_context: 数据库 schema 上下文
+            user_query: 用户查询
+
+        Returns:
+            标准格式的 JSON 结果
+        """
+        logger.info("进入双阶段 JSON 修复流程")
+
+        # 尝试从原始内容中提取 JSON
+        result = self._extract_json_from_thinking_output(raw_content)
+        if result:
+            logger.debug("从 thinking 输出中提取 JSON 成功")
+            return result
+
+        # 如果提取失败，使用非 thinking 模式重新生成
+        logger.info("提取失败，使用非 thinking 模式重新生成标准 JSON")
+
+        fix_prompt = f"""请将以下内容转换为标准 JSON 格式。
+
+原始内容:
+{raw_content[:2000]}
+
+要求:
+1. 提取原始内容中的 SQL 查询
+2. 返回标准的 JSON 对象，包含以下字段: sql, filename, sheet_name, reasoning, intent, preview_sql, key_columns, warnings
+3. 只返回 JSON，不要其他内容
+
+输出格式:
+{{"sql": "...", "filename": "...", "sheet_name": "...", "reasoning": "...", "intent": "query", "preview_sql": null, "key_columns": [], "warnings": []}}
+"""
+
+        try:
+            # 使用非 thinking 模式重新生成
+            response = Generation.call(
+                model='qwen-plus',
+                messages=[
+                    {'role': 'system', 'content': 'You are a JSON formatter. Return only valid JSON.'},
+                    {'role': 'user', 'content': fix_prompt}
+                ],
+                result_format='message',
+                response_format={'type': 'json_object'}
+            )
+
+            if response.status_code == 200:
+                content = response.output.choices[0].message.content
+                result = self._parse_json_response(content)
+                logger.info("JSON 修复成功")
+                return result
+            else:
+                raise JsonParseError(f"修复失败: API 错误 {response.code}")
+
+        except Exception as e:
+            logger.error(f"JSON 修复失败: {e}")
+            # 返回一个默认的失败结果
+            return {
+                "sql": None,
+                "filename": None,
+                "sheet_name": None,
+                "reasoning": f"JSON 修复失败: {str(e)}",
+                "intent": "error",
+                "preview_sql": None,
+                "key_columns": [],
+                "warnings": [f"JSON 修复失败: {str(e)}"]
+            }
+
+    def _extract_json_from_thinking_output(self, content: str) -> Optional[Dict[str, Any]]:
+        """
+        从 thinking 模式的输出中提取 JSON
+
+        Args:
+            content: thinking 模式的输出内容
+
+        Returns:
+            提取的 JSON 字典，如果提取失败返回 None
+        """
+        try:
+            # 尝试找到 JSON 对象
+            start = content.find('{')
+            end = content.rfind('}')
+            if start != -1 and end != -1 and end > start:
+                json_str = content[start:end + 1]
+                return json.loads(json_str)
+
+            # 尝试找到 JSON 数组
+            start = content.find('[')
+            end = content.rfind(']')
+            if start != -1 and end != -1 and end > start:
+                json_str = content[start:end + 1]
+                return json.loads(json_str)
+
+            return None
+        except json.JSONDecodeError:
+            return None
+
+    def _handle_thinking_stream(self, response) -> str:
+        """
+        处理 thinking 模式的流式响应
+
+        Args:
+            response: 流式响应对象
+
+        Returns:
+            合并后的内容字符串
+        """
+        content_parts = []
+        reasoning_content = []
+
+        try:
+            # 处理流式响应
+            for chunk in response:
+                if hasattr(chunk, 'output') and chunk.output:
+                    if hasattr(chunk.output, 'choices') and chunk.output.choices:
+                        choice = chunk.output.choices[0]
+                        if hasattr(choice, 'message') and choice.message:
+                            message = choice.message
+                            # 收集内容
+                            if hasattr(message, 'content') and message.content:
+                                content_val = message.content if isinstance(message.content, str) else str(message.content)
+                                content_parts.append(content_val)
+                            # 收集推理过程
+                            if hasattr(message, 'reasoning_content') and message.reasoning_content:
+                                reasoning_val = message.reasoning_content if isinstance(message.reasoning_content, str) else str(message.reasoning_content)
+                                reasoning_content.append(reasoning_val)
+
+            full_content = ''.join(content_parts)
+            full_reasoning = ''.join(reasoning_content)
+
+            logger.debug(f"Thinking 模式收集内容长度: {len(full_content)}")
+            logger.debug(f"Thinking 模式收集推理长度: {len(full_reasoning)}")
+
+            return full_content
+
+        except Exception as e:
+            logger.error(f"处理 thinking 流式响应失败: {e}")
+            raise
+
+    def _record_cache_metrics(self, response, operation: str):
+        """
+        记录缓存指标
+
+        Args:
+            response: API 响应对象
+            operation: 操作类型
+        """
+        try:
+            usage = getattr(response, 'usage', None)
+            if not usage:
+                return
+
+            # 提取 token 使用信息
+            total_input_tokens = getattr(usage, 'input_tokens', 0)
+            total_output_tokens = getattr(usage, 'output_tokens', 0)
+
+            # 检查缓存命中情况
+            # DashScope API 在 usage.prompt_tokens_details 中提供缓存信息
+            cached_tokens = 0
+            cache_creation_tokens = 0
+
+            prompt_tokens_details = getattr(usage, 'prompt_tokens_details', None)
+            if prompt_tokens_details:
+                cached_tokens = getattr(prompt_tokens_details, 'cached_tokens', 0)
+                cache_creation_tokens = getattr(prompt_tokens_details, 'cache_creation_input_tokens', 0)
+
+            # 判断缓存是否命中
+            cache_hit = cached_tokens > 0
+
+            # 记录指标
+            self._metrics_collector.record_cache_metrics(
+                operation=operation,
+                cache_hit=cache_hit,
+                cache_creation_input_tokens=cache_creation_tokens,
+                cached_tokens=cached_tokens,
+                total_input_tokens=total_input_tokens,
+                total_output_tokens=total_output_tokens,
+                model='qwen-plus'
+            )
+
+            logger.debug(
+                f"缓存指标: operation={operation}, cache_hit={cache_hit}, "
+                f"cached_tokens={cached_tokens}, creation_tokens={cache_creation_tokens}"
+            )
+
+        except Exception as e:
+            logger.warning(f"记录缓存指标失败: {e}")
+
     def _add_to_history(self, user_query, result):
         """
         Add query and result to conversation history.
@@ -299,6 +671,151 @@ Return ONLY a JSON object with keys: `sql`, `filename`, `sheet_name`, `reasoning
 
         return None
 
+    def generate_sql_stream(
+        self,
+        user_query: str,
+        schema_context: str,
+        error_context: Optional[str] = None,
+        context: Optional[dict[str, str]] = None
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        流式生成 SQL
+
+        Args:
+            user_query: 用户自然语言查询
+            schema_context: 数据库 schema 上下文
+            error_context: 可选的错误上下文（用于重试）
+            context: 可选的上下文字典
+
+        Yields:
+            包含增量内容的字典
+        """
+        # Step 1: Extract slots from query and merge with provided context
+        extracted_slots = self.slot_tracker.extract(user_query)
+        merged_context = {**(context or {}), **extracted_slots}
+
+        # Step 2: Rewrite query using context (pronoun substitution)
+        rewritten_query = self.query_rewriter.rewrite(user_query, merged_context)
+        if rewritten_query != user_query:
+            logger.info(f"Query rewritten: '{user_query}' -> '{rewritten_query}'")
+
+        # Construct System Message (Static Prefix for Caching)
+        system_content = f"""You are a MySQL expert. Your task is to translate the user's natural language query into an executable SQL statement.
+
+### Schema Information
+{schema_context}
+
+### Instructions
+1. Generate a valid MySQL SQL query based on the schema and user request.
+2. If tables are in different databases, use database prefix.
+3. Use JOINs if necessary.
+4. **IMPORTANT**: Rename output columns to friendly Chinese names using `AS`.
+5. Suggest a filename and sheet name.
+6. **Intent**: "query" for SELECT, "mutation" for INSERT/UPDATE/DELETE.
+7. For mutations, provide `preview_sql`, `key_columns`, and `warnings`.
+
+### Output Format
+Return ONLY a JSON object with keys: `sql`, `filename`, `sheet_name`, `reasoning`, `intent`, `preview_sql`, `key_columns`, `warnings`."""
+
+        messages = [{'role': 'system', 'content': system_content}]
+
+        # 如果启用缓存，在 system message 上添加 cache_control
+        if self.enable_prompt_cache:
+            messages[0]['cache_control'] = {"type": "ephemeral"}
+            logger.debug("流式生成启用缓存控制")
+
+        # Add Conversation History (Native Messages)
+        if self.conversation_history:
+            for prev_query, prev_result in self.conversation_history:
+                messages.append({'role': 'user', 'content': prev_query})
+                if isinstance(prev_result, dict):
+                    content = f"SQL: {prev_result.get('sql', 'N/A')}\nReasoning: {prev_result.get('reasoning', 'N/A')}" if prev_result.get('success') else f"Error: {prev_result.get('error', 'Unknown error')}"
+                    messages.append({'role': 'assistant', 'content': content})
+
+        # Add Current User Query
+        user_content = f"User Query: {rewritten_query}"
+        if error_context:
+            user_content += f"\n\n### Error from Previous Attempt\n{error_context}"
+        messages.append({'role': 'user', 'content': user_content})
+
+        try:
+            # 构建流式 API 调用参数
+            api_params = {
+                'model': 'qwen-plus',
+                'messages': messages,
+                'result_format': 'message',
+                'stream': True,
+            }
+
+            # 启用 thinking 模式
+            if self.enable_thinking:
+                api_params['enable_thinking'] = True
+                logger.debug("流式生成启用 thinking 模式")
+
+            response = Generation.call(**api_params)
+
+            full_content = []
+            full_reasoning = []
+            usage_info = {}
+
+            for chunk in response:
+                try:
+                    if hasattr(chunk, 'output') and chunk.output:
+                        if hasattr(chunk.output, 'choices') and chunk.output.choices:
+                            choice = chunk.output.choices[0]
+                            if hasattr(choice, 'message') and choice.message:
+                                message = choice.message
+                                delta = {}
+
+                                if hasattr(message, 'content') and message.content:
+                                    content_val = message.content if isinstance(message.content, str) else str(message.content)
+                                    full_content.append(content_val)
+                                    delta['content'] = content_val
+
+                                if hasattr(message, 'reasoning_content') and message.reasoning_content:
+                                    reasoning_val = message.reasoning_content if isinstance(message.reasoning_content, str) else str(message.reasoning_content)
+                                    full_reasoning.append(reasoning_val)
+                                    delta['reasoning'] = reasoning_val
+
+                                if delta:
+                                    yield delta
+
+                    # 收集 usage 信息
+                    if hasattr(chunk, 'usage') and chunk.usage:
+                        usage_info = {
+                            'input_tokens': getattr(chunk.usage, 'input_tokens', 0),
+                            'output_tokens': getattr(chunk.usage, 'output_tokens', 0),
+                        }
+                        prompt_details = getattr(chunk.usage, 'prompt_tokens_details', None)
+                        if prompt_details:
+                            usage_info['cached_tokens'] = getattr(prompt_details, 'cached_tokens', 0)
+
+                except Exception as e:
+                    logger.warning(f"处理流式 chunk 失败: {e}")
+                    continue
+
+            # 发送最终结果
+            final_content = ''.join(full_content)
+            final_reasoning = ''.join(full_reasoning)
+
+            # 尝试解析 JSON
+            try:
+                result = self._parse_json_response(final_content)
+            except JsonParseError:
+                logger.warning("流式输出 JSON 解析失败")
+                result = {'raw_content': final_content}
+
+            yield {
+                'done': True,
+                'result': result,
+                'reasoning': final_reasoning if self.enable_thinking else None,
+                'usage': usage_info
+            }
+
+        except Exception as e:
+            logger.error(f"流式生成失败: {e}")
+            yield {'error': str(e)}
+
     def chat(self, user_input: str) -> str:
         """
         生成通用对话回复
@@ -415,26 +932,52 @@ JSON Object:
 """
 
         try:
-            response = Generation.call(
-                model='qwen-plus',
-                messages=[
-                    {'role': 'system', 'content': 'You are a helpful assistant. Return only JSON.'},
-                    {'role': 'user', 'content': prompt}
-                ],
-                result_format='message'
-            )
+            # 构建消息
+            messages = [
+                {'role': 'system', 'content': 'You are a helpful assistant. Return only JSON.'},
+                {'role': 'user', 'content': prompt}
+            ]
+
+            # 如果启用缓存，在 system message 上添加 cache_control
+            if self.enable_prompt_cache:
+                messages[0]['cache_control'] = {"type": "ephemeral"}
+                logger.debug("意图识别启用缓存控制")
+
+            # 构建 API 调用参数
+            api_params = {
+                'model': 'qwen-plus',
+                'messages': messages,
+                'result_format': 'message',
+            }
+
+            # 非思考模式下启用结构化输出
+            if self.enable_structured_output and not self.enable_thinking:
+                api_params['response_format'] = {'type': 'json_object'}
+                logger.debug("意图识别启用结构化输出模式 (json_object)")
+
+            response = Generation.call(**api_params)
 
             if response.status_code == 200:
                 content = response.output.choices[0].message.content
-                # Clean up code blocks if present
-                content = content.replace('```json', '').replace('```', '').strip()
-                # Find the first { and last }
-                start = content.find('{')
-                end = content.rfind('}')
-                if start != -1 and end != -1:
-                    content = content[start:end + 1]
 
-                result = json.loads(content)
+                # 记录缓存指标
+                if self.enable_prompt_cache and hasattr(response, 'usage'):
+                    self._record_cache_metrics(response, 'recognize_intent')
+
+                # 使用统一的 JSON 解析方法
+                try:
+                    result = self._parse_json_response(content)
+                except JsonParseError as e:
+                    logger.error(f"意图识别 JSON 解析失败: {e}")
+                    return {
+                        "operation_id": None,
+                        "confidence": 0.0,
+                        "params": {},
+                        "fallback_sql": None,
+                        "reasoning": f"解析响应失败: {str(e)}",
+                        "missing_params": [],
+                        "suggestions": ["请重新描述您的需求"]
+                    }
 
                 # Apply defaults
                 result.setdefault('operation_id', None)
@@ -446,23 +989,12 @@ JSON Object:
                 result.setdefault('suggestions', [])
 
                 logger.info(f"意图识别结果: operation={result.get('operation_id')}, "
-                           f"confidence={result.get('confidence'):.2f}")
+                           f"confidence={result.get('confidence', 0):.2f}")
 
                 return result
             else:
                 raise Exception(f"API Error: {response.code} - {response.message}")
 
-        except json.JSONDecodeError as e:
-            logger.error(f"意图识别 JSON 解析失败: {e}")
-            return {
-                "operation_id": None,
-                "confidence": 0.0,
-                "params": {},
-                "fallback_sql": None,
-                "reasoning": f"解析响应失败: {str(e)}",
-                "missing_params": [],
-                "suggestions": ["请重新描述您的需求"]
-            }
         except Exception as e:
             logger.error(f"意图识别失败: {e}")
             raise Exception(f"意图识别失败: {str(e)}")
