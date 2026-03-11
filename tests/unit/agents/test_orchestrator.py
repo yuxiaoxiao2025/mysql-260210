@@ -5,6 +5,7 @@ import pytest
 
 from src.agents.orchestrator import Orchestrator
 from src.agents.context import AgentContext, IntentModel
+from src.agents.models import AgentResult
 
 
 class MockIntentResult:
@@ -14,6 +15,21 @@ class MockIntentResult:
         self.type = intent_type
 
 
+def _create_intent_side_effect(intent_type="query", need_clarify=False, **kwargs):
+    """创建 IntentAgent 的 side_effect 函数
+
+    模拟真实的 IntentAgent 行为：设置 context.intent 并返回 AgentResult
+    """
+    def side_effect(context):
+        context.intent = IntentModel(
+            type=intent_type,
+            need_clarify=need_clarify,
+            **kwargs
+        )
+        return AgentResult(success=True, data=context.intent)
+    return side_effect
+
+
 class TestOrchestratorDependencyInjection:
     """测试 Orchestrator 依赖注入"""
 
@@ -21,20 +37,16 @@ class TestOrchestratorDependencyInjection:
         """测试通过依赖注入使用 mock agent"""
         # Inject mocks to test flow without real agents
         mock_intent = MagicMock()
-        mock_intent.run.return_value.success = True
-        # 设置嵌套属性链
-        mock_intent.run.return_value.data = MagicMock()
-        mock_intent.run.return_value.data.need_clarify = False
-        mock_intent.run.return_value.data.type = "query"
+        mock_intent.run.side_effect = _create_intent_side_effect(intent_type="query")
 
         mock_retrieval = MagicMock()
-        mock_retrieval.run.return_value.success = True
+        mock_retrieval.run.return_value = AgentResult(success=True)
 
         mock_security = MagicMock()
-        mock_security.run.return_value.success = True
+        mock_security.run.return_value = AgentResult(success=True)
 
         mock_execution = MagicMock()
-        mock_execution.run.return_value.success = True
+        mock_execution.run.return_value = AgentResult(success=True)
 
         orch = Orchestrator(
             intent_agent=mock_intent,
@@ -53,7 +65,7 @@ class TestOrchestratorDependencyInjection:
     def test_orchestrator_intent_failure_stops_flow(self):
         """测试意图识别失败时停止流程"""
         mock_intent = MagicMock()
-        mock_intent.run.return_value.success = False
+        mock_intent.run.return_value = AgentResult(success=False)
 
         mock_retrieval = MagicMock()
         mock_security = MagicMock()
@@ -75,10 +87,12 @@ class TestOrchestratorDependencyInjection:
         assert context.step_history[-1] == "intent_failed"
 
     def test_orchestrator_need_clarify_stops_flow(self):
-        """测试需要澄清时停止流程"""
-        # 创建一个真正的 IntentModel 实例并注入到上下文中
+        """测试需要澄清时停止流程并设置 pending_clarification 标志"""
         mock_intent = MagicMock()
-        mock_intent.run.return_value.success = True
+        mock_intent.run.side_effect = _create_intent_side_effect(
+            intent_type="clarify",
+            need_clarify=True
+        )
 
         mock_retrieval = MagicMock()
         mock_security = MagicMock()
@@ -90,17 +104,6 @@ class TestOrchestratorDependencyInjection:
             security_agent=mock_security,
             execution_agent=mock_execution
         )
-
-        # 通过模拟 IntentAgent 在 run 中设置 context.intent.need_clarify = True
-        def side_effect_set_intent(context):
-            from src.agents.context import IntentModel
-            context.intent = IntentModel(
-                type="clarify",
-                need_clarify=True
-            )
-            return MagicMock(success=True)
-
-        mock_intent.run.side_effect = side_effect_set_intent
 
         context = orch.process("test input")
 
@@ -108,18 +111,20 @@ class TestOrchestratorDependencyInjection:
         mock_retrieval.run.assert_not_called()
         mock_security.run.assert_not_called()
         mock_execution.run.assert_not_called()
-        assert context.step_history[-1] == "intent_failed"
+        # 新逻辑：需要澄清时设置 pending_clarification 标志
+        assert context.pending_clarification is True
+        assert "intent" in context.step_history
 
     def test_orchestrator_security_failure_stops_flow(self):
         """测试安全检查失败时停止流程"""
         mock_intent = MagicMock()
-        mock_intent.run.return_value.success = True
+        mock_intent.run.side_effect = _create_intent_side_effect(intent_type="query")
 
         mock_retrieval = MagicMock()
-        mock_retrieval.run.return_value.success = True
+        mock_retrieval.run.return_value = AgentResult(success=True)
 
         mock_security = MagicMock()
-        mock_security.run.return_value.success = False
+        mock_security.run.return_value = AgentResult(success=False)
 
         mock_execution = MagicMock()
 
@@ -130,46 +135,30 @@ class TestOrchestratorDependencyInjection:
             execution_agent=mock_execution
         )
 
-        # 通过 side_effect 设置正确的 intent，并设置 is_safe
-        def side_effect_set_intent(context):
-            from src.agents.context import IntentModel
-            context.intent = IntentModel(
-                type="query",
-                need_clarify=False
-            )
-            return MagicMock(success=True)
-
-        def side_effect_set_security(context):
-            context.is_safe = False
-            return MagicMock(success=False)
-
-        mock_intent.run.side_effect = side_effect_set_intent
-        mock_security.run.side_effect = side_effect_set_security
-
         context = orch.process("test input")
 
         mock_intent.run.assert_called_once()
         mock_retrieval.run.assert_called_once()
         mock_security.run.assert_called_once()
         mock_execution.run.assert_not_called()
-        assert context.is_safe is False
+        assert context.is_safe is None  # SecurityAgent 返回失败，is_safe 未设置
 
     def test_orchestrator_mutation_type_runs_preview(self):
         """测试 mutation 类型运行预览 agent"""
         mock_intent = MagicMock()
-        mock_intent.run.return_value.success = True
+        mock_intent.run.side_effect = _create_intent_side_effect(intent_type="mutation")
 
         mock_retrieval = MagicMock()
-        mock_retrieval.run.return_value.success = True
+        mock_retrieval.run.return_value = AgentResult(success=True)
 
         mock_security = MagicMock()
-        mock_security.run.return_value.success = True
+        mock_security.run.return_value = AgentResult(success=True)
 
         mock_preview = MagicMock()
-        mock_preview.run.return_value.success = True
+        mock_preview.run.return_value = AgentResult(success=True)
 
         mock_execution = MagicMock()
-        mock_execution.run.return_value.success = True
+        mock_execution.run.return_value = AgentResult(success=True)
 
         orch = Orchestrator(
             intent_agent=mock_intent,
@@ -178,17 +167,6 @@ class TestOrchestratorDependencyInjection:
             preview_agent=mock_preview,
             execution_agent=mock_execution
         )
-
-        # 通过 side_effect 设置 mutation intent
-        def side_effect_set_intent(context):
-            from src.agents.context import IntentModel
-            context.intent = IntentModel(
-                type="mutation",
-                need_clarify=False
-            )
-            return MagicMock(success=True)
-
-        mock_intent.run.side_effect = side_effect_set_intent
 
         context = orch.process("delete user 123")
 
@@ -201,22 +179,18 @@ class TestOrchestratorDependencyInjection:
     def test_orchestrator_query_type_skips_preview(self):
         """测试 query 类型跳过预览 agent"""
         mock_intent = MagicMock()
-        mock_intent.run.return_value.success = True
-        # 设置嵌套属性链
-        mock_intent.run.return_value.data = MagicMock()
-        mock_intent.run.return_value.data.need_clarify = False
-        mock_intent.run.return_value.data.type = "query"
+        mock_intent.run.side_effect = _create_intent_side_effect(intent_type="query")
 
         mock_retrieval = MagicMock()
-        mock_retrieval.run.return_value.success = True
+        mock_retrieval.run.return_value = AgentResult(success=True)
 
         mock_security = MagicMock()
-        mock_security.run.return_value.success = True
+        mock_security.run.return_value = AgentResult(success=True)
 
         mock_preview = MagicMock()
 
         mock_execution = MagicMock()
-        mock_execution.run.return_value.success = True
+        mock_execution.run.return_value = AgentResult(success=True)
 
         orch = Orchestrator(
             intent_agent=mock_intent,
@@ -241,20 +215,16 @@ class TestOrchestratorContextManagement:
     def test_orchestrator_creates_context(self):
         """测试 Orchestrator 创建正确的上下文"""
         mock_intent = MagicMock()
-        mock_intent.run.return_value.success = True
-        # 设置嵌套属性链
-        mock_intent.run.return_value.data = MagicMock()
-        mock_intent.run.return_value.data.need_clarify = False
-        mock_intent.run.return_value.data.type = "query"
+        mock_intent.run.side_effect = _create_intent_side_effect(intent_type="query")
 
         mock_retrieval = MagicMock()
-        mock_retrieval.run.return_value.success = True
+        mock_retrieval.run.return_value = AgentResult(success=True)
 
         mock_security = MagicMock()
-        mock_security.run.return_value.success = True
+        mock_security.run.return_value = AgentResult(success=True)
 
         mock_execution = MagicMock()
-        mock_execution.run.return_value.success = True
+        mock_execution.run.return_value = AgentResult(success=True)
 
         orch = Orchestrator(
             intent_agent=mock_intent,
@@ -274,20 +244,16 @@ class TestOrchestratorContextManagement:
     def test_orchestrator_step_history_order(self):
         """测试步骤历史记录顺序正确"""
         mock_intent = MagicMock()
-        mock_intent.run.return_value.success = True
-        # 设置嵌套属性链
-        mock_intent.run.return_value.data = MagicMock()
-        mock_intent.run.return_value.data.need_clarify = False
-        mock_intent.run.return_value.data.type = "query"
+        mock_intent.run.side_effect = _create_intent_side_effect(intent_type="query")
 
         mock_retrieval = MagicMock()
-        mock_retrieval.run.return_value.success = True
+        mock_retrieval.run.return_value = AgentResult(success=True)
 
         mock_security = MagicMock()
-        mock_security.run.return_value.success = True
+        mock_security.run.return_value = AgentResult(success=True)
 
         mock_execution = MagicMock()
-        mock_execution.run.return_value.success = True
+        mock_execution.run.return_value = AgentResult(success=True)
 
         orch = Orchestrator(
             intent_agent=mock_intent,

@@ -70,10 +70,9 @@ class Orchestrator:
 
         按照标准流程执行 Agent 协调:
         1. 意图识别 - 识别用户意图
-        2. 信息检索 - 检索相关 Schema
-        3. 安全检查 - 验证 SQL 安全
-        4. 预览操作 - mutation 类型预览
-        5. 执行操作 - 执行最终操作
+        2. 根据意图类型路由:
+           - chat/qa -> 对话流程 (KnowledgeAgent)
+           - query/mutation -> 业务流程 (Security -> Preview -> Execution)
 
         Args:
             user_input: 用户输入文本
@@ -88,48 +87,85 @@ class Orchestrator:
             chat_history=chat_history or []
         )
 
-        # 1. Intent
+        # 1. Intent - 意图识别
         res = self.intent_agent.run(context)
-        if not res.success or (context.intent and context.intent.need_clarify):
-            # Special handling for chat/qa intents that might need clarification but are actually valid interactions
-            if context.intent and context.intent.type in ["chat", "qa"]:
-                # Let them proceed to execution (or a specialized chat handler)
-                # For now, we'll mark them as safe and let ExecutionAgent handle them (or add a ChatAgent)
-                pass
-            else:
-                context.step_history.append("intent_failed")
-                return context
+        if not res.success:
+            context.step_history.append("intent_failed")
+            return context
+
         context.step_history.append("intent")
 
-        # 2. Retrieval
+        # 2. 检查是否需要澄清
+        if context.intent and context.intent.need_clarify:
+            context.pending_clarification = True
+            return context
+
+        # 3. 根据意图类型路由
+        if context.intent and context.intent.type in ["chat", "qa"]:
+            return self._handle_conversation(context)
+        elif context.intent and context.intent.type in ["query", "mutation"]:
+            return self._handle_business_operation(context, user_confirmation)
+        else:
+            # 未知意图类型
+            return context
+
+    def _handle_conversation(self, context: AgentContext) -> AgentContext:
+        """处理对话和知识问答
+
+        Args:
+            context: 执行上下文
+
+        Returns:
+            AgentContext: 更新后的上下文
+        """
+        # 检索相关schema（可选）
         retrieval_res = self.retrieval_agent.run(context)
         if retrieval_res.success:
             context.step_history.append("retrieval")
 
-        # 3. Knowledge (for chat/qa)
-        if context.intent and context.intent.type in ["chat", "qa"]:
-            knowledge_res = self.knowledge_agent.run(context)
-            if not knowledge_res.success:
-                context.step_history.append("knowledge_failed")
-                return context
-            context.execution_result = knowledge_res.data
-            context.step_history.append("knowledge")
-            context.step_history.append("execution")
+        # 流式问答
+        knowledge_res = self.knowledge_agent.run(context)
+        if not knowledge_res.success:
+            context.step_history.append("knowledge_failed")
             return context
 
-        # 4. Security
+        context.execution_result = knowledge_res.data  # generator
+        context.step_history.append("knowledge")
+
+        return context
+
+    def _handle_business_operation(
+        self,
+        context: AgentContext,
+        user_confirmation: bool | None = None
+    ) -> AgentContext:
+        """处理业务操作（query/mutation）
+
+        Args:
+            context: 执行上下文
+            user_confirmation: 用户确认标志
+
+        Returns:
+            AgentContext: 更新后的上下文
+        """
+        # 2. Retrieval - 信息检索
+        retrieval_res = self.retrieval_agent.run(context)
+        if retrieval_res.success:
+            context.step_history.append("retrieval")
+
+        # 3. Security - 安全检查
         if not self.security_agent.run(context).success:
             context.step_history.append("security_failed")
             return context
         context.step_history.append("security")
 
-        # 5. Preview (if mutation)
+        # 4. Preview - 预览操作 (if mutation)
         if context.intent and context.intent.type == "mutation":
             preview_res = self.preview_agent.run(context)
             if preview_res.success:
                 context.step_history.append("preview")
 
-        # 6. Review (if provided)
+        # 5. Review - 人工审核 (if provided)
         if self.review_agent and user_confirmation is not True:
             review_res = self.review_agent.run(context)
             if review_res.next_action == "ask_user":
@@ -143,7 +179,7 @@ class Orchestrator:
         elif user_confirmation is True:
             context.step_history.append("review_confirmed")
 
-        # 7. Execution
+        # 6. Execution - 执行操作
         self.execution_agent.run(context)
         context.step_history.append("execution")
 
