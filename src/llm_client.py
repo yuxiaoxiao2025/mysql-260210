@@ -43,23 +43,6 @@ class LLMClient:
     def generate_sql(self, user_query: str, schema_context: str, error_context: Optional[str] = None, context: Optional[dict[str, str]] = None) -> dict[str, Any]:
         """
         Translate NL to SQL.
-
-        Args:
-            user_query: The natural language query from the user.
-            schema_context: Database schema information for SQL generation.
-            error_context: Optional error message from a previous attempt.
-            context: Optional context dictionary for query enhancement (e.g., {"plate": "沪A12345"}).
-
-        Returns a dict: {
-            "sql": "SELECT ...",
-            "filename": "suggested_filename",
-            "sheet_name": "suggested_sheet_name",
-            "reasoning": "Explanation...",
-            "intent": "query" | "mutation",
-            "preview_sql": "SELECT ... (for mutation operations)",
-            "key_columns": ["col1", "col2"],
-            "warnings": ["warning1", "warning2"]
-        }
         """
         # Step 1: Extract slots from query and merge with provided context
         extracted_slots = self.slot_tracker.extract(user_query)
@@ -70,141 +53,96 @@ class LLMClient:
         if rewritten_query != user_query:
             logger.info(f"Query rewritten: '{user_query}' -> '{rewritten_query}'")
 
-        # Step 3: Get allowed tables from retrieval pipeline for validation
-        # Only use retrieval tables if user didn't provide explicit allowed_tables
+        # Step 3: Get allowed tables (validation logic)
         allowed_tables_from_retrieval = self._get_allowed_tables_from_retrieval()
         if allowed_tables_from_retrieval and not self._user_provided_tables:
-            # Auto-create validator if retrieval provides tables and no user-provided tables exist
             self.table_validator = TableValidator(allowed_tables_from_retrieval)
-            logger.debug(f"Auto-created TableValidator with {len(allowed_tables_from_retrieval)} tables from retrieval")
-
-        # Build conversation history context
-        history_context = ""
-        if self.conversation_history:
-            history_context = "\n### Conversation History (Previous queries and results)\n"
-            for i, (prev_query, prev_result) in enumerate(self.conversation_history, 1):
-                history_context += f"Round {i}:\n"
-                history_context += f"  User: {prev_query}\n"
-                if prev_result:
-                    history_context += f"  Result: {prev_result}\n"
-                history_context += "\n"
-        
-        # Build error context if provided
-        error_text = ""
-        if error_context:
-            error_text = f"\n### Error from Previous Attempt\n{error_context}\n"
+            logger.debug(f"Auto-created TableValidator with {len(allowed_tables_from_retrieval)} tables")
 
         # Optional: Enhance schema with retrieval
-        # First try the RetrievalPipeline (with reranking support)
         retrieval_context = ""
         pipeline = self._get_retrieval_pipeline()
         if pipeline:
             try:
                 result = pipeline.search(rewritten_query, top_k=5)
-                # Add retrieved tables to schema_context
                 retrieval_context = "\n" + self._build_retrieval_context(result)
-                logger.debug(
-                    f"Enhanced schema with {len(result.matches)} retrieved tables via pipeline"
-                )
             except Exception as e:
                 logger.warning(f"Pipeline retrieval enhancement failed: {e}")
-                # Continue without enhancement or fall back to agent
 
-        # Fall back to RetrievalAgent if pipeline is not available
         if not retrieval_context:
             agent = self._get_retrieval_agent()
-            if agent and agent.graph:  # Graph exists (indexing done)
+            if agent and agent.graph:
                 try:
                     from src.metadata.retrieval_models import RetrievalRequest, RetrievalLevel
-                    result = agent.search(RetrievalRequest(
-                        query=rewritten_query,
-                        level=RetrievalLevel.TABLE,
-                        top_k=5
-                    ))
-                    # Add retrieved tables to schema_context
+                    result = agent.search(RetrievalRequest(query=rewritten_query, level=RetrievalLevel.TABLE, top_k=5))
                     retrieval_context = "\n" + self._build_retrieval_context(result)
-                    logger.debug(f"Enhanced schema with {len(result.matches)} retrieved tables via agent")
                 except Exception as e:
                     logger.warning(f"Retrieval enhancement failed: {e}")
-                    # Retrieval is optional enhancement, continue without it
 
-        prompt = f"""You are a MySQL expert. Your task is to translate the user's natural language query into an executable SQL statement.
+        # Construct System Message (Static Prefix for Caching)
+        system_content = f"""You are a MySQL expert. Your task is to translate the user's natural language query into an executable SQL statement.
 
 ### Schema Information
 {schema_context}{retrieval_context}
-{history_context}
-{error_text}
+
 ### Instructions
 1. Generate a valid MySQL SQL query based on the schema and user request.
-2. If tables are in different databases (e.g., cloudinterface vs parkcloud), ensure you use the database prefix (e.g., `parkcloud.table_name`) if necessary.
-3. Use JOINs if the data is distributed across tables.
-4. **IMPORTANT**: The user wants "customized" and "readable" exports. Rename the output columns to friendly Chinese names using `AS` (e.g., `SELECT name AS '姓名'`). Use the descriptions provided in the schema context or infer reasonable names.
-5. Suggest a filename (without extension) and a sheet name for the Excel export.
-6. If there's an error from a previous attempt, analyze the error and fix the SQL accordingly.
-7. **CRITICAL**: Pay attention to conversation history. If the user is correcting or refining a previous query, use that context to improve your response.
-
-### DML Operations Support (INSERT/UPDATE/DELETE)
-8. Determine the operation **intent**:
-   - Use `"intent": "query"` for SELECT queries (read-only)
-   - Use `"intent": "mutation"` for INSERT/UPDATE/DELETE (modifying data)
-9. For **mutation** operations, you MUST also provide:
-   - `preview_sql`: A SELECT query that shows the data to be affected (before execution)
-   - `key_columns`: List of column names that identify affected rows (e.g., ["id", "username"])
-   - `warnings`: List of warnings about the operation's impact (e.g., ["This will update 5 rows"])
+2. If tables are in different databases, use database prefix.
+3. Use JOINs if necessary.
+4. **IMPORTANT**: Rename output columns to friendly Chinese names using `AS`.
+5. Suggest a filename and sheet name.
+6. **Intent**: "query" for SELECT, "mutation" for INSERT/UPDATE/DELETE.
+7. For mutations, provide `preview_sql`, `key_columns`, and `warnings`.
 
 ### Output Format
-Return ONLY a JSON object with the following keys:
-   - `sql`: The SQL query string. Do NOT include markdown code blocks.
-   - `filename`: A short, descriptive filename (e.g., "login_users").
-   - `sheet_name`: A short sheet name (e.g., "人员名单").
-   - `reasoning`: A brief explanation of your logic.
-   - `intent`: Either "query" or "mutation"
-   - `preview_sql`: For mutations - a SELECT query preview (optional for queries)
-   - `key_columns`: For mutations - list of identifying columns (optional)
-   - `warnings`: For mutations - list of impact warnings (optional)
+Return ONLY a JSON object with keys: `sql`, `filename`, `sheet_name`, `reasoning`, `intent`, `preview_sql`, `key_columns`, `warnings`."""
 
-### User Query
-{rewritten_query}
+        messages = [{'role': 'system', 'content': system_content}]
 
-### Output
-JSON Object:
-"""
+        # Add Conversation History (Native Messages)
+        if self.conversation_history:
+            for prev_query, prev_result in self.conversation_history:
+                messages.append({'role': 'user', 'content': prev_query})
+                if isinstance(prev_result, dict):
+                    # Convert result summary to a string representation for context
+                    content = f"SQL: {prev_result.get('sql', 'N/A')}\nReasoning: {prev_result.get('reasoning', 'N/A')}"
+                    if not prev_result.get('success'):
+                        content = f"Error: {prev_result.get('error', 'Unknown error')}"
+                    messages.append({'role': 'assistant', 'content': content})
+
+        # Add Current User Query
+        user_content = f"User Query: {rewritten_query}"
+        if error_context:
+            user_content += f"\n\n### Error from Previous Attempt\n{error_context}"
+        
+        messages.append({'role': 'user', 'content': user_content})
 
         try:
-            # Use qwen-plus as requested
+            # Use qwen-plus with JSON mode
             response = Generation.call(
                 model='qwen-plus',
-                messages=[{'role': 'system', 'content': 'You are a helpful SQL assistant. Return only JSON.'},
-                          {'role': 'user', 'content': prompt}],
-                result_format='message'
+                messages=messages,
+                result_format='message',
+                response_format={'type': 'json_object'}
             )
             
             if response.status_code == 200:
                 content = response.output.choices[0].message.content
-                # Clean up code blocks if present
-                content = content.replace('```json', '').replace('```', '').strip()
-                # Find the first { and last }
-                start = content.find('{')
-                end = content.rfind('}')
-                if start != -1 and end != -1:
-                    content = content[start:end+1]
-
                 result = json.loads(content)
-                # Apply defaults for extended contract fields
+                
+                # Apply defaults
                 result.setdefault('intent', 'query')
                 result.setdefault('preview_sql', None)
                 result.setdefault('key_columns', [])
                 result.setdefault('warnings', [])
 
-                # Step 4: Validate SQL tables against allowed list
+                # Step 4: Validate SQL
                 sql = result.get('sql', '')
                 if sql and self.table_validator:
                     is_valid, error_msg = self.table_validator.validate(sql)
                     if not is_valid:
                         logger.warning(f"Table validation failed: {error_msg}")
-                        # Add validation error to warnings
                         result['warnings'].append(f"Table validation: {error_msg}")
-                        # Return error result instead of invalid SQL
                         return {
                             'sql': None,
                             'filename': None,
@@ -216,11 +154,8 @@ JSON Object:
                             'warnings': [f"Table validation failed: {error_msg}"]
                         }
 
-                self.last_result = result  # Store for transaction preview
-
-                # Add to conversation history (use original user_query for history)
+                self.last_result = result
                 self._add_to_history(user_query, result)
-
                 return result
             else:
                 raise Exception(f"API Error: {response.code} - {response.message}")
