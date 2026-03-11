@@ -29,6 +29,17 @@ class ExecutionAgent(BaseAgent):
 
         # 检查操作ID是否存在
         if not context.intent.operation_id:
+            # Special case for chat/qa
+            if context.intent.type in ["chat", "qa"]:
+                # Use fallback reasoning or suggestions as result
+                result = {
+                    "success": True,
+                    "summary": context.intent.reasoning or "No specific response generated.",
+                    "data": context.intent.params
+                }
+                context.execution_result = result
+                return AgentResult(success=True, data=result, message="Chat/QA handled")
+
             return AgentResult(
                 success=False,
                 message="缺少操作ID"
@@ -38,6 +49,20 @@ class ExecutionAgent(BaseAgent):
         executor = OperationExecutor()
 
         # 执行操作
+        if context.intent.operation_id in ["general_chat", "knowledge_qa"]:
+             # For now, we return the reasoning as the "answer". 
+             # In future, we should invoke LLM to generate a proper answer if reasoning is not enough.
+             result = AgentResult(
+                 success=True,
+                 data=context.intent.reasoning,
+                 message="Chat response"
+             )
+             context.execution_result = {
+                 "summary": context.intent.reasoning,
+                 "success": True
+             }
+             return result
+
         result = executor.execute_operation(
             context.intent.operation_id,
             context.intent.params,

@@ -72,8 +72,14 @@ class Orchestrator:
         # 1. Intent
         res = self.intent_agent.run(context)
         if not res.success or (context.intent and context.intent.need_clarify):
-            context.step_history.append("intent_failed")
-            return context
+            # Special handling for chat/qa intents that might need clarification but are actually valid interactions
+            if context.intent and context.intent.type in ["chat", "qa"]:
+                # Let them proceed to execution (or a specialized chat handler)
+                # For now, we'll mark them as safe and let ExecutionAgent handle them (or add a ChatAgent)
+                pass
+            else:
+                context.step_history.append("intent_failed")
+                return context
         context.step_history.append("intent")
 
         # 2. Retrieval
@@ -82,10 +88,15 @@ class Orchestrator:
             context.step_history.append("retrieval")
 
         # 3. Security
-        if not self.security_agent.run(context).success:
-            context.step_history.append("security_failed")
-            return context
-        context.step_history.append("security")
+        if context.intent and context.intent.type in ["chat", "qa"]:
+            # Skip security check for chat/qa
+            context.is_safe = True
+            context.step_history.append("security_skipped")
+        else:
+            if not self.security_agent.run(context).success:
+                context.step_history.append("security_failed")
+                return context
+            context.step_history.append("security")
 
         # 4. Preview (if mutation)
         if context.intent and context.intent.type == "mutation":
@@ -93,7 +104,14 @@ class Orchestrator:
             if preview_res.success:
                 context.step_history.append("preview")
 
-        # 5. Execution (if query or confirmed mutation)
+        # 5. Execution (if query or confirmed mutation or chat/qa)
+        if context.intent and context.intent.type in ["chat", "qa"]:
+            # For now, let's just use ExecutionAgent, but we might need a dedicated ChatAgent
+            # ExecutionAgent might not know how to handle "chat" type.
+            # Let's add a simple chat handling logic here or inside ExecutionAgent.
+            # Ideally, we should add a ChatAgent to Orchestrator.
+            pass
+        
         self.execution_agent.run(context)
         context.step_history.append("execution")
 

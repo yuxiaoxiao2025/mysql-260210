@@ -66,10 +66,15 @@ class IntentAgent(BaseAgent):
             operation_id: 操作ID
 
         Returns:
-            str: 意图类型 (query/mutation/clarify)
+            str: 意图类型 (query/mutation/clarify/chat/qa)
         """
         if not operation_id:
             return "clarify"
+
+        if operation_id == "general_chat":
+            return "chat"
+        if operation_id == "knowledge_qa":
+            return "qa"
 
         # 根据 operation_id 后缀推断类型
         if operation_id.endswith("_query") or "_query_" in operation_id:

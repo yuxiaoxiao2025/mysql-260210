@@ -416,12 +416,15 @@ Your task is to understand the user's intent and match it to one of the predefin
    - Operator names (操作员): Must match one of the available values
    - Dates: Parse relative dates like "30天内" to appropriate values
 3. If a parameter value is mentioned but not in the available values list, still extract it but add a warning.
-4. If the query doesn't match any operation template, generate a fallback SQL query.
+4. If the query doesn't match any operation template:
+   - If it is a general question, greeting, or capability query (e.g., "What can you do?", "Hi", "Can you help me?"), return `operation_id: "general_chat"`.
+   - If it is a knowledge question about tables or schema (e.g., "What is in table X?", "Does this table exist?"), return `operation_id: "knowledge_qa"`.
+   - Otherwise, generate a fallback SQL query.
 5. List any required parameters that are missing.
 
 ### Output Format
 Return ONLY a JSON object with these keys:
-- `operation_id`: The matched operation ID (e.g., "plate_distribute"), or null if no match
+- `operation_id`: The matched operation ID, "general_chat", "knowledge_qa", or null if no match
 - `confidence`: A number between 0 and 1 indicating confidence in the match
 - `params`: An object with extracted parameter values (use null for missing params)
 - `fallback_sql`: If no operation matches, generate a SQL query (null if operation matched)
