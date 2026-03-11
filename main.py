@@ -40,7 +40,7 @@ from src.sql_safety import validate_direct_query_sql
 from src.preview_renderer import should_render_html
 from src.knowledge import KnowledgeLoader
 from src.intent import IntentRecognizer
-from src.executor import OperationExecutor
+from src.executor import OperationExecutor, get_operation_executor
 from src.monitoring import MetricsCollector, AlertManager, setup_structured_logging, LogNotifier
 from src.context import SlotTracker, QueryRewriter
 from src.cli.preview import CLIPreview
@@ -171,7 +171,7 @@ def main():
 
         # 初始化意图识别器和操作执行器
         intent_recognizer = IntentRecognizer(llm, knowledge_loader)
-        operation_executor = OperationExecutor(db, knowledge_loader)
+        operation_executor = get_operation_executor(db, knowledge_loader)
         logger.info("AI 模块加载成功")
         print("[OK] AI 模块加载成功！")
 

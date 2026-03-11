@@ -5,7 +5,7 @@
 from src.agents.base import BaseAgent
 from src.agents.models import AgentResult
 from src.agents.context import AgentContext
-from src.executor.operation_executor import OperationExecutor
+from src.executor.operation_executor import OperationExecutor, get_operation_executor
 
 
 class PreviewAgent(BaseAgent):
@@ -42,7 +42,14 @@ class PreviewAgent(BaseAgent):
             )
 
         # 初始化执行器
-        executor = OperationExecutor()
+        try:
+            executor = get_operation_executor()
+        except ValueError:
+            # Fallback (similar to ExecutionAgent logic, though ideally shouldn't happen if initialized properly)
+            try:
+                executor = OperationExecutor(None, None)
+            except Exception:
+                return AgentResult(success=False, message="OperationExecutor not initialized")
 
         # 执行预览
         preview = executor.execute_operation(
