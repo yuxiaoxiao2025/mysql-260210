@@ -16,9 +16,12 @@ class BaseAgentConfig(BaseModel):
 
 
 class IntentAgentConfig(BaseAgentConfig):
-    """意图识别 Agent 配置"""
-    # 继承自 BaseAgentConfig，可添加意图识别特定配置
-    pass
+    """意图识别 Agent 配置
+
+    Attributes:
+        confidence_threshold: 置信度阈值，低于此值需要澄清 (默认 0.6)
+    """
+    confidence_threshold: float = Field(default=0.6, description="置信度阈值，低于此值需要澄清")
 
 
 class SecurityAgentConfig(BaseAgentConfig):

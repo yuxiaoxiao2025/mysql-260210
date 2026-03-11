@@ -40,10 +40,10 @@ class IntentAgent(BaseAgent):
         intent_type = self._infer_intent_type(recognized.operation_id)
 
         # Determine if clarification is needed
-        need_clarify = (
+        need_clarify = bool(
             not recognized.is_matched
             or recognized.missing_params
-            or recognized.confidence < 0.6
+            or recognized.confidence < self.config.confidence_threshold
         )
 
         # Map to Context Model
