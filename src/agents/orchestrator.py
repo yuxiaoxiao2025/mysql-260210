@@ -27,7 +27,7 @@ class Orchestrator:
     """
 
     def __init__(self, intent_agent=None, retrieval_agent=None, security_agent=None,
-                 preview_agent=None, execution_agent=None):
+                 preview_agent=None, execution_agent=None, llm_client=None, knowledge_loader=None):
         """初始化 Orchestrator
 
         支持依赖注入用于测试，否则初始化默认 Agent。
@@ -38,8 +38,14 @@ class Orchestrator:
             security_agent: SecurityAgent 实例 (可选)
             preview_agent: PreviewAgent 实例 (可选)
             execution_agent: ExecutionAgent 实例 (可选)
+            llm_client: LLM 客户端 (可选，用于初始化 IntentAgent)
+            knowledge_loader: KnowledgeLoader 实例 (可选，用于初始化 IntentAgent)
         """
-        self.intent_agent = intent_agent or IntentAgent(IntentAgentConfig(name="intent"))
+        self.intent_agent = intent_agent or IntentAgent(
+            IntentAgentConfig(name="intent"), 
+            llm_client=llm_client, 
+            knowledge_loader=knowledge_loader
+        )
         self.retrieval_agent = retrieval_agent or RetrievalAgent(BaseAgentConfig(name="retrieval"))
         self.security_agent = security_agent or SecurityAgent(SecurityAgentConfig(name="security"))
         self.preview_agent = preview_agent or PreviewAgent(BaseAgentConfig(name="preview"))

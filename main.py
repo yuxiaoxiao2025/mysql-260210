@@ -210,7 +210,10 @@ def main():
         if args.agent_mode:
             print("正在初始化 Orchestrator...")
             try:
-                orchestrator = Orchestrator()
+                orchestrator = Orchestrator(
+                    llm_client=llm,
+                    knowledge_loader=knowledge_loader
+                )
                 logger.info("Orchestrator 初始化成功")
                 print("[OK] Orchestrator 初始化成功！")
             except Exception as e:
