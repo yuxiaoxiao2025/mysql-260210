@@ -1,7 +1,5 @@
 """Orchestrator 单元测试"""
-import sys, io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-
+import sys
 from unittest.mock import MagicMock, patch
 import pytest
 
