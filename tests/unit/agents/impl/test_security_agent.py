@@ -1,5 +1,6 @@
 """Security Agent 单元测试"""
 import pytest
+from unittest.mock import patch
 from src.agents.impl.security_agent import SecurityAgent
 from src.agents.config import SecurityAgentConfig
 from src.agents.context import AgentContext, IntentModel
@@ -156,3 +157,17 @@ class TestSecurityAgent:
         result = self.agent.run(context)
         assert result.success is True
         assert context.is_safe is True
+
+    def test_security_agent_exception_handling(self):
+        """测试validate_sql抛出异常时的处理"""
+        agent = SecurityAgent(SecurityAgentConfig(name="sec"))
+        context = AgentContext(user_input="test")
+        context.intent = IntentModel(type="query", sql="SELECT * FROM users")
+
+        with patch("src.agents.impl.security_agent.validate_sql") as mock:
+            mock.side_effect = Exception("Validation error")
+            result = agent.run(context)
+
+            assert result.success is False
+            assert "Validation error" in result.message
+            assert context.is_safe is False
