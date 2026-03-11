@@ -2,6 +2,7 @@
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Any, Optional, List
 from uuid import uuid4, UUID
+from src.memory.memory_models import ConceptMapping
 
 
 class IntentModel(BaseModel):
@@ -15,6 +16,8 @@ class IntentModel(BaseModel):
         reasoning: 推理过程
         sql: 生成的 SQL
         need_clarify: 是否需要澄清
+        clarification_question: 澄清问题
+        unrecognized_concepts: 未识别概念列表
     """
     type: str = Field(..., description="意图类型")
     confidence: float = Field(default=0.0, description="置信度", ge=0.0, le=1.0)
@@ -23,6 +26,8 @@ class IntentModel(BaseModel):
     reasoning: str = Field(default="", description="推理过程")
     sql: Optional[str] = Field(default=None, description="生成的 SQL")
     need_clarify: bool = Field(default=False, description="是否需要澄清")
+    clarification_question: Optional[str] = Field(default=None, description="澄清问题")
+    unrecognized_concepts: List[str] = Field(default_factory=list, description="未识别概念列表")
 
 
 class AgentContext(BaseModel):
@@ -38,7 +43,7 @@ class AgentContext(BaseModel):
         preview_data: 预览数据 (可选)
         execution_result: 执行结果 (可选)
     """
-    model_config = ConfigDict(json_encoders={})
+    model_config = ConfigDict(json_encoders={}, arbitrary_types_allowed=True)
 
     user_input: str = Field(..., description="用户原始输入")
     trace_id: UUID = Field(default_factory=uuid4, description="追踪ID")
@@ -49,3 +54,5 @@ class AgentContext(BaseModel):
     preview_data: Optional[Any] = Field(default=None, description="预览数据")
     execution_result: Optional[Any] = Field(default=None, description="执行结果")
     chat_history: List[dict] = Field(default_factory=list, description="多轮对话历史")
+    pending_clarification: bool = Field(default=False, description="是否等待用户澄清")
+    learned_concepts: List[ConceptMapping] = Field(default_factory=list, description="已学习概念列表")
