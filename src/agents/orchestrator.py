@@ -60,7 +60,12 @@ class Orchestrator:
             llm_client=llm_client
         )
 
-    def process(self, user_input: str, user_confirmation: bool | None = None) -> AgentContext:
+    def process(
+        self,
+        user_input: str,
+        chat_history: list | None = None,
+        user_confirmation: bool | None = None
+    ) -> AgentContext:
         """处理用户输入
 
         按照标准流程执行 Agent 协调:
@@ -72,11 +77,16 @@ class Orchestrator:
 
         Args:
             user_input: 用户输入文本
+            chat_history: 对话历史（可选），用于多轮对话上下文
+            user_confirmation: 用户确认标志（可选，用于 ReviewAgent）
 
         Returns:
             AgentContext: 包含执行结果的上下文
         """
-        context = AgentContext(user_input=user_input)
+        context = AgentContext(
+            user_input=user_input,
+            chat_history=chat_history or []
+        )
 
         # 1. Intent
         res = self.intent_agent.run(context)
