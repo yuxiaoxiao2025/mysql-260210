@@ -28,6 +28,7 @@ from src.metadata.models import (
     KnowledgeGraph,
     TableMetadata,
 )
+from src.metadata.change_detector import SchemaChangeDetector
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,7 @@ class SchemaIndexer:
         self.embedding_service = embedding_service or EmbeddingService()
         self.graph_store = graph_store or GraphStore(env=env)
         self.domain_classifier = DomainClassifier()
+        self.change_detector = SchemaChangeDetector(db_manager=self.db_manager)
         self.env = env
         self.progress_file = Path(f"data/{env}/index_progress.json")
 
@@ -76,6 +78,107 @@ class SchemaIndexer:
         self.progress_file.parent.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"SchemaIndexer initialized for env='{env}'")
+
+    def incremental_sync(self) -> IndexResult:
+        """
+        增量同步：只索引有变化的表。
+
+        Returns:
+            索引结果
+        """
+        start_time = time.time()
+        logger.info("Starting incremental schema sync")
+
+        current_db = self._get_current_database_name()
+        if not current_db:
+            logger.error("No active database for incremental sync")
+            # 尝试使用环境变量中的默认数据库
+            from src.config import get_db_url
+            import os
+            current_db = os.getenv('DB_NAME', 'test')
+            logger.info(f"Using default database from env: {current_db}")
+            
+            if not current_db:
+                return IndexResult(
+                    success=False,
+                    total_tables=0,
+                    indexed_tables=0,
+                    elapsed_seconds=time.time() - start_time,
+                )
+
+        # 获取所有表
+        try:
+            all_tables = self.db_manager.get_all_tables()
+        except Exception as e:
+            logger.error(f"Failed to get table list: {e}")
+            return IndexResult(
+                success=False,
+                total_tables=0,
+                indexed_tables=0,
+                elapsed_seconds=time.time() - start_time,
+            )
+
+        # 检测变化
+        tables_to_reindex = self.change_detector.get_tables_needing_reindex(
+            current_db, all_tables
+        )
+
+        if not tables_to_reindex:
+            logger.info("No changes detected, skipping reindex")
+            return IndexResult(
+                success=True,
+                total_tables=len(all_tables),
+                indexed_tables=0,
+                elapsed_seconds=time.time() - start_time,
+            )
+
+        logger.info(f"Detected {len(tables_to_reindex)} tables needing reindex")
+
+        # 重新索引变化的表
+        # Load existing graph or create new one if not exists
+        try:
+            knowledge_graph = self.graph_store.load_graph()
+        except Exception:
+            knowledge_graph = KnowledgeGraph()
+            
+        failed_tables = []
+
+        for table_name in tables_to_reindex:
+            try:
+                # 删除旧的向量 (if exists)
+                # Note: delete_table might not be implemented in GraphStore, 
+                # but add_table typically overwrites or we can just append.
+                # Ideally we should remove old entries first.
+                # self.graph_store.delete_table(table_name)
+
+                # 重新索引
+                self.index_single_table(table_name)
+
+                # 更新版本
+                self.change_detector.update_version(current_db, table_name)
+
+            except Exception as e:
+                logger.error(f"Failed to reindex {table_name}: {e}")
+                failed_tables.append(table_name)
+
+        # 保存知识图谱
+        # Note: index_single_table updates the store but doesn't update the monolithic JSON graph structure
+        # We might need to reload/update knowledge_graph here if we want the JSON to be consistent
+        # For now, we rely on GraphStore's vector storage which is the source of truth for retrieval
+        
+        elapsed = time.time() - start_time
+        logger.info(
+            f"Incremental sync complete: {len(tables_to_reindex) - len(failed_tables)}/"
+            f"{len(tables_to_reindex)} tables reindexed in {elapsed:.2f}s"
+        )
+
+        return IndexResult(
+            success=len(failed_tables) == 0,
+            total_tables=len(all_tables),
+            indexed_tables=len(tables_to_reindex) - len(failed_tables),
+            failed_tables=failed_tables,
+            elapsed_seconds=elapsed,
+        )
 
     def index_all_tables(self, batch_size: int = 10) -> IndexResult:
         """

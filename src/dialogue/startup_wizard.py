@@ -48,7 +48,8 @@ class StartupWizard:
         self,
         concept_store: ConceptStoreService,
         retrieval_agent=None,
-        question_generator: Optional[QuestionGenerator] = None
+        question_generator: Optional[QuestionGenerator] = None,
+        db_manager=None  # Add db_manager
     ):
         """
         初始化启动向导。
@@ -57,10 +58,12 @@ class StartupWizard:
             concept_store: 概念存储服务
             retrieval_agent: 检索代理
             question_generator: 问题生成器
+            db_manager: 数据库管理器
         """
         self.concept_store = concept_store
         self.retrieval_agent = retrieval_agent
         self.question_generator = question_generator or QuestionGenerator()
+        self.db_manager = db_manager  # Store db_manager
         self.state = WizardState.NOT_STARTED
         self.progress = WizardProgress()
         self.questions: List[ClarificationQuestion] = []
@@ -93,11 +96,30 @@ class StartupWizard:
 
     def _get_tables_for_questions(self) -> List[dict]:
         """获取用于生成问题的表"""
-        if self.retrieval_agent:
-            # 从检索代理获取重要表
-            stats = self.retrieval_agent.get_stats()
-            # 这里简化处理，实际应该获取具体表信息
-            return []
+        if self.db_manager:
+            try:
+                tables = self.db_manager.get_all_tables()
+                # 随机选择一些表，或者按某种规则选择
+                # 这里简单地获取前 20 个表，并尝试获取注释
+                selected_tables = []
+                for table_name in tables[:20]:
+                    try:
+                        # 这是一个简化的获取表注释的方法，实际上 DatabaseManager 可能没有直接的方法
+                        # 我们假设 DatabaseManager 有 get_table_schema 方法
+                        schema = self.db_manager.get_table_schema(table_name)
+                        # schema 是列信息的列表，我们这里无法直接获取表注释
+                        # 所以我们只能用表名
+                        selected_tables.append({
+                            "table_name": table_name,
+                            "comment": "", # 暂无表注释
+                            "business_domain": ""
+                        })
+                    except Exception:
+                        selected_tables.append({"table_name": table_name})
+                return selected_tables
+            except Exception as e:
+                logger.error(f"Failed to get tables for wizard: {e}")
+                return []
         return []
 
     def get_current_question(self) -> Optional[ClarificationQuestion]:

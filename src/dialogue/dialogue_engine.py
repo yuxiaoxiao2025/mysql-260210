@@ -75,6 +75,7 @@ class DialogueEngine:
         self.pending_questions: List[ClarificationQuestion] = []
         self.current_concept_term: Optional[str] = None
         self.learned_concepts: List[ConceptMapping] = []
+        self.pending_intent: Optional[str] = None  # Store intent for execution
 
         logger.info("DialogueEngine initialized")
 
@@ -210,6 +211,8 @@ class DialogueEngine:
         intent_description = "执行相关操作"
         if intent_parts:
             intent_description = f"根据你说的{', '.join(intent_parts)}，执行查询"
+        
+        self.pending_intent = intent_description
 
         return DialogueResponse(
             message=f"好的，我准备{intent_description}。这样可以吗？",
@@ -223,15 +226,20 @@ class DialogueEngine:
         if answer in ["可以", "是", "确认", "好的", "A"]:
             self.state = DialogueState.EXECUTING
             self.learned_concepts.clear()
+            
+            intent_to_execute = self.pending_intent
+            self.pending_intent = None
 
             return DialogueResponse(
                 message="好的，正在执行...",
                 state=DialogueState.EXECUTING,
                 needs_input=False,
+                intent_description=intent_to_execute
             )
         else:
             self.state = DialogueState.IDLE
             self.learned_concepts.clear()
+            self.pending_intent = None
 
             return DialogueResponse(
                 message="好的，请告诉我需要怎么调整？",
@@ -249,6 +257,7 @@ class DialogueEngine:
 
         # 构建意图描述
         intent_description = self._build_intent_description(resolved_input, concepts)
+        self.pending_intent = intent_description
 
         # 记录助手消息
         self.context_memory.add_assistant_message(
@@ -293,3 +302,4 @@ class DialogueEngine:
         self.pending_questions.clear()
         self.current_concept_term = None
         self.learned_concepts.clear()
+        self.pending_intent = None

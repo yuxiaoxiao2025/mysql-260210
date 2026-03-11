@@ -72,6 +72,25 @@ def print_welcome():
     print("也可以直接输入自然语言或 SQL 语句")
     print("=" * 60)
 
+def check_and_sync_schema(db_manager):
+    """检查并同步表结构变化"""
+    from src.metadata.schema_indexer import SchemaIndexer
+
+    try:
+        # Pass the existing db_manager to SchemaIndexer to reuse connection context
+        indexer = SchemaIndexer(db_manager=db_manager)
+        result = indexer.incremental_sync()
+
+        if result.indexed_tables > 0:
+            print(f"[INFO] 已同步 {result.indexed_tables} 个表的结构变化")
+        elif result.success:
+            print("[INFO] 表结构无变化")
+        else:
+            print(f"[WARN] 同步失败: {result.failed_tables}")
+    except Exception as e:
+        logger.error(f"增量同步失败: {e}")
+        print(f"[WARN] 增量同步失败: {e}")
+
 def main():
     _configure_stdio_encoding()
     logger.info("应用程序启动")
@@ -95,8 +114,21 @@ def main():
         print("[OK] 对话记忆系统初始化成功！")
 
         # 检查是否需要启动向导
-        wizard = StartupWizard(concept_store)
+        wizard = StartupWizard(concept_store, db_manager=db)
+        
+        # 强制询问是否补充知识库（如果尚未启动向导）
+        start_wizard = False
         if wizard.should_start():
+            start_wizard = True
+        else:
+            try:
+                response = input("\n是否需要补充知识库？(y/n，默认n): ").strip().lower()
+                if response == 'y':
+                    start_wizard = True
+            except EOFError:
+                pass
+
+        if start_wizard:
             print("\n" + "=" * 60)
             print(wizard.get_welcome_message())
             print("=" * 60)
@@ -119,15 +151,6 @@ def main():
             except Exception as e:
                 logger.warning(f"启动向导执行出错: {e}")
                 print(f"[WARN] 启动向导未能完成，继续主程序...")
-        else:
-            # 询问是否需要补充知识库
-            try:
-                response = input("\n是否需要补充知识库？(y/n，默认n): ").strip().lower()
-                if response == 'y':
-                    print("[INFO] 知识库补充功能可通过对话模式使用")
-            except EOFError:
-                # 非交互式环境，跳过
-                pass
 
         print("正在加载 AI 模块...")
         llm = LLMClient()
@@ -171,6 +194,10 @@ def main():
         dialogue_engine = DialogueEngine(concept_store, context_memory)
         logger.info("对话引擎初始化成功")
         print("[OK] 对话引擎初始化成功！")
+
+        # 检查数据库结构变化
+        print("正在检查数据库结构变化...")
+        check_and_sync_schema(db)
 
     except Exception as e:
         logger.error(f"初始化失败: {e}")
@@ -351,9 +378,31 @@ def main():
             is_sql = first_word in ['select', 'show', 'describe', 'desc', 'explain', 'update', 'delete', 'insert', 'drop', 'alter', 'truncate']
 
             if not is_sql:
+                # 使用对话引擎处理输入
+                response = dialogue_engine.process_input(user_input)
+                
+                # 如果不是执行状态，显示消息并继续（等待下一次输入）
+                if response.state != DialogueState.EXECUTING:
+                    print(f"\n[助手] {response.message}")
+                    if response.options:
+                        for i, opt in enumerate(response.options):
+                            print(f"  {chr(65+i)}. {opt}")
+                    continue
+                
+                # 如果是执行状态，使用澄清后的意图进行执行
+                print(f"\n[助手] {response.message}")
+                query_to_execute_text = response.intent_description or user_input
+                # 解析代词引用 (Double check, although DialogueEngine already did it)
+                query_to_execute_text = context_memory.resolve_reference(query_to_execute_text)
+                
+                print(f"🔄 正在根据意图执行: {query_to_execute_text}")
+                
+                # 重置对话引擎状态
+                dialogue_engine.reset()
+
                 # 尝试智能意图识别
                 print("🔍 正在识别操作意图...")
-                intent_result = intent_recognizer.recognize(user_input)
+                intent_result = intent_recognizer.recognize(query_to_execute_text)
 
                 # 高置信度匹配到操作模板
                 if intent_result.is_matched and intent_result.confidence >= 0.7:
@@ -498,19 +547,20 @@ def main():
                     print("🧠 正在思考您的需求...")
 
                     # 使用 SlotTracker 提取槽位
-                    extracted_slots = slot_tracker.extract(user_input)
+                    extracted_slots = slot_tracker.extract(query_to_execute_text)
                     if extracted_slots:
                         print(f"📋 提取的槽位: {extracted_slots}")
 
                     # 使用 QueryRewriter 重写查询（替换代词）
-                    rewritten_query = query_rewriter.rewrite(user_input, extracted_slots)
-                    if rewritten_query != user_input:
-                        print(f"🔄 查询重写: '{user_input}' -> '{rewritten_query}'")
-
+                    # 注意：DialogueEngine 已经做过代词替换，这里可能再次替换，但应该无害
+                    rewritten_query = query_rewriter.rewrite(query_to_execute_text, extracted_slots)
+                    if rewritten_query != query_to_execute_text:
+                        print(f"🔄 查询重写: '{query_to_execute_text}' -> '{rewritten_query}'")
+                    
                     try:
                         # 调用 LLMClient.generate_sql 并传入上下文
                         result = llm.generate_sql(
-                            user_query=user_input,
+                            user_query=rewritten_query,
                             schema_context=schema_context,
                             context=extracted_slots
                         )
@@ -547,7 +597,7 @@ def main():
                                 result = llm.generate_sql(
                                     user_query=corrected_query,
                                     schema_context=schema_context,
-                                    error_context=f"Previous query was: {user_input}. User correction: {corrected_query}",
+                                    error_context=f"Previous query was: {rewritten_query}. User correction: {corrected_query}",
                                     context=extracted_slots
                                 )
                                 if result.get('intent') == 'error':
@@ -566,7 +616,7 @@ def main():
 
                     except Exception as e:
                         print(f"❌ AI 生成失败: {e}")
-                        llm.add_error_to_history(user_input, str(e))
+                        llm.add_error_to_history(query_to_execute_text, str(e))
                         continue
             else:
                 # 直接 SQL 输入

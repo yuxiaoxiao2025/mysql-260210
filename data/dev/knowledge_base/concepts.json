@@ -1,46 +1,73 @@
 {
   "version": "1.0.0",
-  "last_updated": "2026-03-10T12:00:00",
+  "last_updated": "2026-03-11T10:20:15.242778",
   "concepts": {
     "internal_vehicle": {
       "concept_id": "internal_vehicle",
-      "user_terms": ["内部车辆", "固定车", "线上固定车", "固定车辆"],
+      "user_terms": [
+        "内部车辆",
+        "固定车",
+        "线上固定车",
+        "固定车辆"
+      ],
       "database_mapping": {
         "table": "parkcloud.cloud_fixed_plate",
         "description": "线上固定车辆表"
       },
       "description": "内部车辆，数据库中叫线上固定车",
       "learned_from": "initial_template",
-      "confidence": 0.8,
-      "confirmed_count": 3
+      "created_at": "2026-03-11T10:06:23.723655",
+      "updated_at": "2026-03-11T10:06:23.723655",
+      "confirmed_count": 3,
+      "confidence": 0.8
     },
     "parking_lot": {
       "concept_id": "parking_lot",
-      "user_terms": ["园区", "场库", "停车场", "园区名称"],
+      "user_terms": [
+        "园区",
+        "场库",
+        "停车场",
+        "园区名称"
+      ],
       "database_mapping": {
         "table": "parkcloud.cloud_park",
         "description": "园区信息表，共33个园区"
       },
       "description": "园区/场库，共33个园区",
       "learned_from": "initial_template",
-      "confidence": 0.8,
-      "confirmed_count": 3
+      "created_at": "2026-03-11T10:06:23.723655",
+      "updated_at": "2026-03-11T10:06:23.723655",
+      "confirmed_count": 3,
+      "confidence": 0.8
     },
     "entry_exit_record": {
       "concept_id": "entry_exit_record",
-      "user_terms": ["停过", "去过", "进出场", "进出记录", "出入记录"],
+      "user_terms": [
+        "停过",
+        "去过",
+        "进出场",
+        "进出记录",
+        "出入记录"
+      ],
       "database_mapping": {
         "tables_pattern": "p_*",
         "description": "p开头的库里的进出场记录表"
       },
       "description": "进出场记录，需要遍历p开头的库",
       "learned_from": "initial_template",
-      "confidence": 0.7,
-      "confirmed_count": 2
+      "created_at": "2026-03-11T10:06:23.723655",
+      "updated_at": "2026-03-11T10:06:23.723655",
+      "confirmed_count": 2,
+      "confidence": 0.7
     },
     "plate_distribute": {
       "concept_id": "plate_distribute",
-      "user_terms": ["下发", "下发到", "同步到", "推送到"],
+      "user_terms": [
+        "下发",
+        "下发到",
+        "同步到",
+        "推送到"
+      ],
       "database_mapping": {
         "operation": "update_state",
         "state_value": 0,
@@ -48,32 +75,92 @@
       },
       "description": "下发操作，设置state=0",
       "learned_from": "initial_template",
-      "confidence": 0.8,
-      "confirmed_count": 3
+      "created_at": "2026-03-11T10:06:23.723655",
+      "updated_at": "2026-03-11T10:06:23.723655",
+      "confirmed_count": 3,
+      "confidence": 0.8
     },
     "plate_binding": {
       "concept_id": "plate_binding",
-      "user_terms": ["绑定", "绑定关系", "绑定的园区"],
+      "user_terms": [
+        "绑定",
+        "绑定关系",
+        "绑定的园区"
+      ],
       "database_mapping": {
         "table": "parkcloud.cloud_fixed_plate_park",
         "description": "车牌与园区的绑定关系表"
       },
       "description": "车牌绑定的园区",
       "learned_from": "initial_template",
-      "confidence": 0.8,
-      "confirmed_count": 2
+      "created_at": "2026-03-11T10:06:23.723655",
+      "updated_at": "2026-03-11T10:06:23.723655",
+      "confirmed_count": 2,
+      "confidence": 0.8
     },
     "plate_query": {
       "concept_id": "plate_query",
-      "user_terms": ["查车牌", "查询车牌", "车牌信息", "查一下车牌"],
+      "user_terms": [
+        "查车牌",
+        "查询车牌",
+        "车牌信息",
+        "查一下车牌"
+      ],
       "database_mapping": {
         "operation": "plate_query",
         "description": "查询车牌基本信息"
       },
       "description": "查询车牌信息",
       "learned_from": "initial_template",
-      "confidence": 0.9,
-      "confirmed_count": 5
+      "created_at": "2026-03-11T10:06:23.723655",
+      "updated_at": "2026-03-11T10:06:23.723655",
+      "confirmed_count": 5,
+      "confidence": 0.9
+    },
+    "learned_query_intent": {
+      "concept_id": "learned_query_intent",
+      "user_terms": [
+        "query_intent"
+      ],
+      "database_mapping": {
+        "user_description": "A B"
+      },
+      "description": "A B",
+      "learned_from": "startup_wizard",
+      "created_at": "2026-03-11T10:06:44.525094",
+      "updated_at": "2026-03-11T10:06:44.525094",
+      "confirmed_count": 0,
+      "confidence": 0.5
+    },
+    "learned_mutation_intent": {
+      "concept_id": "learned_mutation_intent",
+      "user_terms": [
+        "mutation_intent"
+      ],
+      "database_mapping": {
+        "user_description": "A B C"
+      },
+      "description": "A B C",
+      "learned_from": "startup_wizard",
+      "created_at": "2026-03-11T10:06:54.077059",
+      "updated_at": "2026-03-11T10:06:54.077059",
+      "confirmed_count": 0,
+      "confidence": 0.5
+    },
+    "learned_记录": {
+      "concept_id": "learned_记录",
+      "user_terms": [
+        "记录"
+      ],
+      "database_mapping": {
+        "meaning": "就是数据库的每个表里的每一条数据"
+      },
+      "description": "就是数据库的每个表里的每一条数据",
+      "learned_from": "dialogue",
+      "created_at": "2026-03-11T10:20:15.242778",
+      "updated_at": "2026-03-11T10:20:15.242778",
+      "confirmed_count": 0,
+      "confidence": 0.5
     }
   }
 }
