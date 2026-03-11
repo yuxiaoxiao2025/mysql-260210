@@ -364,6 +364,46 @@ JSON Object:
 
         return None
 
+    def chat(self, user_input: str) -> str:
+        """
+        生成通用对话回复
+
+        Args:
+            user_input: 用户输入
+
+        Returns:
+            生成的回复文本
+        """
+        messages = [{'role': 'system', 'content': 'You are a helpful parking management assistant. Answer user questions clearly and concisely.'}]
+        
+        # Add limited history context
+        if self.conversation_history:
+            for query, result in self.conversation_history[-3:]:
+                messages.append({'role': 'user', 'content': query})
+                if isinstance(result, dict) and 'summary' in result:
+                    messages.append({'role': 'assistant', 'content': result['summary']})
+                elif isinstance(result, dict) and 'sql' in result:
+                    messages.append({'role': 'assistant', 'content': f"Generated SQL: {result['sql']}"})
+        
+        messages.append({'role': 'user', 'content': user_input})
+
+        try:
+            response = Generation.call(
+                model='qwen-plus',
+                messages=messages,
+                result_format='message'
+            )
+            
+            if response.status_code == 200:
+                content = response.output.choices[0].message.content
+                return content
+            else:
+                logger.error(f"Chat API Error: {response.code} - {response.message}")
+                return "抱歉，我现在无法回答这个问题。"
+        except Exception as e:
+            logger.error(f"Chat generation failed: {e}")
+            return "抱歉，发生了一些错误。"
+
     def recognize_intent(self, user_query: str, operations_context: str,
                          enum_values: Optional[Dict[str, list]] = None) -> Dict[str, Any]:
         """

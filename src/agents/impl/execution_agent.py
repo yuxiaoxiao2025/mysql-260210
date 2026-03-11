@@ -5,7 +5,7 @@
 from src.agents.base import BaseAgent
 from src.agents.models import AgentResult
 from src.agents.context import AgentContext
-from src.executor.operation_executor import OperationExecutor
+from src.executor.operation_executor import OperationExecutor, get_operation_executor
 
 
 class ExecutionAgent(BaseAgent):
@@ -13,6 +13,16 @@ class ExecutionAgent(BaseAgent):
 
     执行用户意图指定的操作，支持查询和变更操作。
     """
+
+    def __init__(self, config, llm_client=None):
+        """初始化 ExecutionAgent
+
+        Args:
+            config: Agent 配置
+            llm_client: LLM 客户端 (可选，用于生成聊天回复)
+        """
+        super().__init__(config)
+        self.llm_client = llm_client
 
     def _run_impl(self, context: AgentContext) -> AgentResult:
         """执行操作
@@ -45,23 +55,39 @@ class ExecutionAgent(BaseAgent):
                 message="缺少操作ID"
             )
 
-        # 初始化执行器
-        executor = OperationExecutor()
-
         # 执行操作
         if context.intent.operation_id in ["general_chat", "knowledge_qa"]:
-             # For now, we return the reasoning as the "answer". 
-             # In future, we should invoke LLM to generate a proper answer if reasoning is not enough.
+             response_text = context.intent.reasoning
+             
+             # If llm_client is available, try to generate a better response
+             if self.llm_client and hasattr(self.llm_client, 'chat'):
+                 try:
+                     chat_response = self.llm_client.chat(context.user_input)
+                     if chat_response:
+                         response_text = chat_response
+                 except Exception as e:
+                     # Fallback to reasoning if chat fails
+                     pass
+
              result = AgentResult(
                  success=True,
-                 data=context.intent.reasoning,
+                 data=response_text,
                  message="Chat response"
              )
              context.execution_result = {
-                 "summary": context.intent.reasoning,
+                 "summary": response_text,
                  "success": True
              }
              return result
+
+        # 初始化执行器 (Use singleton to avoid initialization errors)
+        try:
+            executor = get_operation_executor()
+        except ValueError:
+            # Fallback for tests or if not initialized globally (should not happen in main execution)
+            # But we can't easily init it here without dependencies.
+            # Assuming main.py has initialized it.
+            return AgentResult(success=False, message="OperationExecutor not initialized")
 
         result = executor.execute_operation(
             context.intent.operation_id,

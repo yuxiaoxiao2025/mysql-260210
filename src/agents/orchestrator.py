@@ -49,7 +49,10 @@ class Orchestrator:
         self.retrieval_agent = retrieval_agent or RetrievalAgent(BaseAgentConfig(name="retrieval"))
         self.security_agent = security_agent or SecurityAgent(SecurityAgentConfig(name="security"))
         self.preview_agent = preview_agent or PreviewAgent(BaseAgentConfig(name="preview"))
-        self.execution_agent = execution_agent or ExecutionAgent(BaseAgentConfig(name="execution"))
+        self.execution_agent = execution_agent or ExecutionAgent(
+            BaseAgentConfig(name="execution"),
+            llm_client=llm_client
+        )
 
     def process(self, user_input: str) -> AgentContext:
         """处理用户输入
