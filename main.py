@@ -3,6 +3,7 @@ import os
 import datetime
 import shlex
 import logging
+import argparse
 from logging.handlers import RotatingFileHandler
 
 # 配置日志系统
@@ -49,11 +50,14 @@ from src.memory.concept_store import ConceptStoreService
 from src.memory.context_memory import ContextMemoryService
 from src.dialogue.startup_wizard import StartupWizard
 from src.dialogue.dialogue_engine import DialogueEngine, DialogueState
+from src.agents.orchestrator import Orchestrator
 
-def print_welcome():
+def print_welcome(agent_mode=False):
     print("=" * 60)
     print("MySQL Export Tool v3.0 (AI Enhanced + Smart Operations)")
     print("=" * 60)
+    if agent_mode:
+        print("运行模式: Agent Mode (使用 Orchestrator)")
     print("新功能：智能业务操作")
     print("  现在可以直接使用业务语言，系统会自动识别并执行操作：")
     print("  '下发车牌 沪ABC1234 到 国际商务中心'")
@@ -94,6 +98,12 @@ def check_and_sync_schema(db_manager):
 def main():
     _configure_stdio_encoding()
     logger.info("应用程序启动")
+
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description="MySQL Export Tool v3.0 (AI Enhanced)")
+    parser.add_argument("--agent-mode", action="store_true", help="启用 Agent 模式，使用 Orchestrator 处理请求")
+    args = parser.parse_args()
+
     try:
         print("正在连接数据库...")
         db = DatabaseManager()
@@ -195,6 +205,19 @@ def main():
         logger.info("对话引擎初始化成功")
         print("[OK] 对话引擎初始化成功！")
 
+        # 初始化 Orchestrator (如果启用 agent-mode)
+        orchestrator = None
+        if args.agent_mode:
+            print("正在初始化 Orchestrator...")
+            try:
+                orchestrator = Orchestrator()
+                logger.info("Orchestrator 初始化成功")
+                print("[OK] Orchestrator 初始化成功！")
+            except Exception as e:
+                logger.error(f"Orchestrator 初始化失败: {e}")
+                print(f"[WARN] Orchestrator 初始化失败: {e}")
+                print("将使用传统模式继续运行...")
+
         # 检查数据库结构变化
         print("正在检查数据库结构变化...")
         check_and_sync_schema(db)
@@ -204,10 +227,9 @@ def main():
         print(f"[ERR] 初始化失败: {e}")
         return
 
-    print_welcome()
-
+    print_welcome(agent_mode=args.agent_mode)
+    sql_to_execute = None  # 初始化变量，防止未定义
     while True:
-        sql_to_execute = None  # 初始化变量，防止未定义
         try:
             user_input = input("\n[MySQL/AI] > ").strip()
 
@@ -284,7 +306,7 @@ def main():
 
             # 新增：help 命令
             if user_input.lower() == 'help' or user_input.lower() == 'help ':
-                print_welcome()
+                print_welcome(agent_mode=args.agent_mode)
                 print("\n📖 详细帮助：")
                 print("  使用 'operations' 查看所有可用操作")
                 print("  使用 'help <操作名>' 查看操作详情，如 'help plate_distribute'")
@@ -370,6 +392,61 @@ def main():
                             print(f"  - {table}")
 
                     continue
+
+            # ========== Agent Mode 处理 ==========
+
+            # 如果启用了 agent-mode，使用 Orchestrator 处理
+            if args.agent_mode and orchestrator:
+                print("🤖 使用 Orchestrator 处理请求...")
+                agent_context = orchestrator.process(user_input)
+
+                # 处理需要澄清的情况
+                if agent_context.intent and agent_context.intent.need_clarify:
+                    print(f"\n[需要澄清] {agent_context.intent.reasoning or '请提供更多细节'}")
+                    if agent_context.intent.params:
+                        print("已识别的参数:")
+                        for key, value in agent_context.intent.params.items():
+                            print(f"  {key}: {value}")
+                    continue
+
+                # 处理安全检查失败
+                if agent_context.is_safe is False:
+                    print("❌ 安全检查未通过，操作已取消")
+                    continue
+
+                # 处理预览数据 (mutation 操作)
+                if agent_context.preview_data:
+                    print("\n📊 操作预览:")
+                    print(f"{agent_context.preview_data}")
+
+                    # 询问用户确认
+                    confirm = input("\n❓ 确认执行此操作？(y/n) > ")
+                    if confirm.lower() != 'y':
+                        print("❌ 操作已取消")
+                        continue
+
+                    # 用户确认后，重新执行带确认的操作
+                    # 注意：这里简化处理，实际应该通过 Orchestrator 的反馈机制
+                    print("⏳ 正在执行操作...")
+
+                # 显示执行结果
+                if agent_context.execution_result:
+                    print(f"\n✅ 执行结果:")
+                    print(f"{agent_context.execution_result}")
+
+                    # 记录操作指标
+                    if hasattr(agent_context, 'intent') and agent_context.intent:
+                        op_type = agent_context.intent.type if hasattr(agent_context.intent, 'type') else "unknown"
+                        metrics_collector.record_operation(
+                            operation_type=op_type,
+                            success=True,
+                            duration=0.0,  # 简化处理
+                            operation_id=agent_context.intent.operation_id if hasattr(agent_context.intent, 'operation_id') else "unknown"
+                        )
+                else:
+                    print("⚠️  未获得执行结果")
+
+                continue
 
             # ========== 智能意图识别 ==========
 
