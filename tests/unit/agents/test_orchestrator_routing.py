@@ -277,3 +277,39 @@ class TestOrchestratorRouting:
 
         # 验证澄清标志被设置
         assert context.pending_clarification is True
+
+    def test_orchestrator_handle_clarification_loop(self):
+        """测试Orchestrator处理澄清循环"""
+        # Mock agents
+        mock_intent = MagicMock()
+        mock_retrieval = MagicMock()
+
+        # 第一次调用：需要澄清 - 使用side_effect设置context.intent
+        def intent_side_effect(context):
+            context.intent = IntentModel(
+                type="clarify",
+                confidence=0.0,
+                need_clarify=True,
+                clarification_question="请问ROI具体指什么？",
+                unrecognized_concepts=["ROI"]
+            )
+            return AgentResult(success=True, data=context.intent)
+
+        mock_intent.run.side_effect = intent_side_effect
+
+        orch = Orchestrator(
+            intent_agent=mock_intent,
+            retrieval_agent=mock_retrieval
+        )
+
+        # 第一次处理
+        context = orch.process("查询ROI")
+
+        # 验证返回澄清状态
+        assert context.pending_clarification is True
+        assert context.intent.clarification_question == "请问ROI具体指什么？"
+        assert "ROI" in context.intent.unrecognized_concepts
+
+        # 验证没有继续执行后续流程
+        assert "retrieval" not in context.step_history
+        assert "execution" not in context.step_history
