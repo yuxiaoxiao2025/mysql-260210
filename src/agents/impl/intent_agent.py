@@ -1,15 +1,16 @@
 """Intent Agent 实现"""
 import re
-from typing import Optional
+from typing import Optional, List
 
 from src.agents.base import BaseAgent
 from src.agents.config import IntentAgentConfig
 from src.agents.context import AgentContext, IntentModel
 from src.agents.models import AgentResult
 from src.intent.intent_recognizer import IntentRecognizer
-from src.dialogue.concept_recognizer import ConceptRecognizer
+from src.dialogue.concept_recognizer import ConceptRecognizer, RecognizedConcept
 from src.dialogue.question_generator import QuestionGenerator
 from src.memory.concept_store import ConceptStoreService
+from src.memory.memory_models import ConceptMapping
 
 
 class IntentAgent(BaseAgent):
@@ -104,7 +105,16 @@ class IntentAgent(BaseAgent):
         return AgentResult(success=True, data=context.intent)
 
     def _is_clarification_response(self, context: AgentContext) -> bool:
-        """检查是否是澄清回答"""
+        """检查是否是澄清回答
+        
+        优先使用 pending_clarification 状态标志，
+        如果不可用则回退到关键词匹配。
+        """
+        # 优先使用状态标志
+        if hasattr(context, 'pending_clarification') and context.pending_clarification:
+            return True
+            
+        # 回退到关键词匹配
         if not context.chat_history or len(context.chat_history) < 2:
             return False
 
@@ -123,7 +133,11 @@ class IntentAgent(BaseAgent):
         return any(kw in last_assistant_msg for kw in clarification_keywords)
 
     def _handle_clarification(self, context: AgentContext) -> None:
-        """处理澄清回答，学习概念"""
+        """处理澄清回答，学习概念
+        
+        从对话历史中提取概念术语和用户解释，
+        创建新概念并保存到 concept_store。
+        """
         # 从chat_history中提取概念术语
         last_assistant_msg = ""
         for msg in reversed(context.chat_history):
@@ -131,8 +145,8 @@ class IntentAgent(BaseAgent):
                 last_assistant_msg = msg.get("content", "")
                 break
 
-        # 提取概念术语：优先提取引号中的内容，否则尝试从"请问"后面提取
-        matches = re.findall(r'["""](.*?)["""]', last_assistant_msg)
+        # 提取概念术语：支持中英文引号
+        matches = re.findall(r'["""\'](.*?)["""\']', last_assistant_msg)
         if matches:
             concept_term = matches[0]
         else:
@@ -142,10 +156,10 @@ class IntentAgent(BaseAgent):
                 concept_term = match.group(1)
             else:
                 return
+        
         user_explanation = context.user_input
 
         # 创建新概念
-        from src.memory.memory_models import ConceptMapping
         new_concept = ConceptMapping(
             concept_id=f"learned_{concept_term}",
             user_terms=[concept_term],
@@ -154,11 +168,17 @@ class IntentAgent(BaseAgent):
             learned_from="dialogue"
         )
 
-        # 保存到concept_store
-        self.concept_store.add_concept(new_concept)
-        context.learned_concepts.append(new_concept)
+        # 保存到concept_store（带错误处理）
+        try:
+            self.concept_store.add_concept(new_concept)
+            context.learned_concepts.append(new_concept)
+        except Exception as e:
+            # 记录错误但不中断流程
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to save learned concept '{concept_term}': {e}", exc_info=True)
 
-    def _generate_clarification(self, context: AgentContext, unrecognized: list) -> AgentResult:
+    def _generate_clarification(self, context: AgentContext, unrecognized: List[RecognizedConcept]) -> AgentResult:
         """生成澄清问题"""
         # 只处理第一个未识别概念
         first_concept = unrecognized[0]
