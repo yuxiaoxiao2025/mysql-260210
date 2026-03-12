@@ -76,7 +76,8 @@ def print_welcome(agent_mode=False):
     print("  help [operation]  - 查看帮助或操作详情")
     print("  operations        - 列出所有可用操作")
     print("  index schema      - 索引所有数据库的表结构")
-    print("  chat              - 进入智能对话模式（推荐）")
+    print("  chat              - 进入智能对话模式")
+    print("  react             - 进入 ReACT 对话模式（新架构，推荐）")
     print("  exit / quit       - 退出程序")
     print("-" * 60)
     print("也可以直接输入自然语言或 SQL 语句")
@@ -230,6 +231,30 @@ def main():
             print(f"[WARN] Orchestrator 初始化失败: {e}")
             orchestrator = None
 
+        # 初始化 MVP ReACT 架构
+        print("正在初始化 ReACT 架构...")
+        try:
+            from src.react.orchestrator import MVPReACTOrchestrator
+            from src.react.tool_service import MVPToolService
+            from src.metadata.retrieval_pipeline import RetrievalPipeline
+
+            mvp_tool_service = MVPToolService(
+                db_manager=db,
+                retrieval_pipeline=RetrievalPipeline(),
+                operation_executor=operation_executor,
+                knowledge_loader=knowledge_loader
+            )
+            mvp_orchestrator = MVPReACTOrchestrator(
+                llm_client=llm,
+                tool_service=mvp_tool_service
+            )
+            logger.info("ReACT 架构初始化成功")
+            print("[OK] ReACT 架构初始化成功！")
+        except Exception as e:
+            logger.error(f"ReACT 架构初始化失败: {e}")
+            print(f"[WARN] ReACT 架构初始化失败: {e}")
+            mvp_orchestrator = None
+
         # 检查数据库结构变化
         print("正在检查数据库结构变化...")
         check_and_sync_schema(db)
@@ -382,6 +407,57 @@ def main():
                         logger.error(f"对话模式错误: {e}", exc_info=True)
                         print(f"[ERR] 对话出错: {e}")
 
+                print("=" * 60)
+                continue
+
+            # 新增：react 命令 - 使用新架构对话
+            if user_input.lower() == 'react':
+                if not mvp_orchestrator:
+                    print("[ERR] ReACT 架构未初始化")
+                    continue
+
+                print("\n" + "=" * 60)
+                print("进入 ReACT 对话模式（新架构）")
+                print("你好，我是你的智能数据库助手。")
+                print("输入 'exit' 或 'quit' 退出")
+                print("=" * 60)
+
+                while True:
+                    try:
+                        react_input = input("\n[ReACT] > ").strip()
+                        if not react_input:
+                            continue
+
+                        if react_input.lower() in ['exit', 'quit', '退出']:
+                            break
+
+                        # 检查是否是确认响应
+                        if mvp_orchestrator.state.pending_confirmation:
+                            if react_input.lower() == 'y':
+                                result = mvp_orchestrator.confirm(True)
+                                print(f"\n[助手] {result}")
+                            elif react_input.lower() == 'n':
+                                result = mvp_orchestrator.confirm(False)
+                                print(f"\n[助手] {result}")
+                            else:
+                                # 用户修改意见，重置状态重新处理
+                                mvp_orchestrator.state.pending_confirmation = False
+                                result = mvp_orchestrator.process(f"用户修改：{react_input}")
+                                print(f"\n[助手] {result}")
+                            continue
+
+                        # 正常处理
+                        result = mvp_orchestrator.process(react_input)
+                        print(f"\n[助手] {result}")
+
+                    except KeyboardInterrupt:
+                        break
+                    except Exception as e:
+                        logger.error(f"ReACT 模式错误: {e}", exc_info=True)
+                        print(f"[ERR] 出错: {e}")
+
+                mvp_orchestrator.reset()
+                print("退出 ReACT 模式")
                 print("=" * 60)
                 continue
 
