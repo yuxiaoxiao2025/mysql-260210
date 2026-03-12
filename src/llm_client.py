@@ -834,15 +834,27 @@ Return ONLY a JSON object with keys: `sql`, `filename`, `sheet_name`, `reasoning
     def chat_stream(self, messages: list[dict], enable_thinking: bool = False):
         """
         Stream chat response with thinking support
-        
+
         Args:
             messages: List of message dicts
             enable_thinking: Whether to enable thinking mode
-            
+
         Yields:
-            Dict with type ('thinking', 'content', 'usage') and content
+            Dict with type ('thinking', 'content', 'error', 'usage') and content
         """
+        # 前置检查
+        if not messages:
+            logger.error("chat_stream: messages is empty")
+            yield {"type": "error", "content": "消息列表为空"}
+            return
+
+        if not self.api_key:
+            logger.error("chat_stream: API key not configured")
+            yield {"type": "error", "content": "API 密钥未配置，请设置 DASHSCOPE_API_KEY 环境变量"}
+            return
+
         try:
+            logger.info(f"chat_stream: calling LLM with {len(messages)} messages")
             if self.client:
                 response = self.client.chat.completions.create(
                     model="qwen-plus",

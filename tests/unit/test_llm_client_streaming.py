@@ -4,6 +4,8 @@ from src.llm_client import LLMClient
 
 def test_chat_stream_with_thinking():
     client = LLMClient()
+    # 设置测试用的 api_key
+    client.api_key = "test-api-key"
 
     with patch.object(client, "client") as mock_openai:
         mock_stream = MagicMock()
