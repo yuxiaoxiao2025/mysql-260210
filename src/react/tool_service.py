@@ -9,6 +9,10 @@ logger = logging.getLogger(__name__)
 # 确认请求标记
 NEED_CONFIRM_MARKER = "__NEED_CONFIRM__"
 
+# Token 限制配置
+MAX_TABLES = 3
+MAX_FIELDS = 10
+
 
 class MVPToolService:
     """MVP 工具服务
@@ -75,16 +79,13 @@ class MVPToolService:
             return "未找到相关的表。请尝试其他关键词。"
 
         # 限制返回表数量（考虑 Token 限制）
-        max_tables = 3
-        max_fields = 10
+        lines = [f"找到 {len(result.matches)} 个相关表（显示前 {MAX_TABLES} 个）："]
 
-        lines = [f"找到 {len(result.matches)} 个相关表（显示前 {max_tables} 个）："]
-
-        for match in result.matches[:max_tables]:
+        for match in result.matches[:MAX_TABLES]:
             # 跨库表名解析
-            # TableMatch.database_name 默认为空字符串 ""，需检查真值
-            # 不能用 is not None 判断，因为空字符串也是 truthy 的 falsy 值
-            db_name = getattr(match, 'database_name', None) or None
+            # TableMatch.database_name 可能是 None 或空字符串 ""
+            # 使用 getattr 默认 ''，然后用 or None 将 falsy 值转为 None
+            db_name = getattr(match, 'database_name', '') or None
             table_name = match.table_name
 
             # 处理 "db.table" 格式（当 TableMatch.database_name 为空时）
@@ -106,7 +107,7 @@ class MVPToolService:
 
                 if schema_info:
                     lines.append("字段列表：")
-                    for col in schema_info[:max_fields]:
+                    for col in schema_info[:MAX_FIELDS]:
                         col_name = col['name']
                         col_type = col['type']
                         col_comment = col.get('comment', '')
@@ -117,7 +118,7 @@ class MVPToolService:
                         else:
                             lines.append(f"  - {col_name} ({col_type})")
 
-                    if len(schema_info) > max_fields:
+                    if len(schema_info) > MAX_FIELDS:
                         lines.append(f"  ... 共 {len(schema_info)} 个字段")
                 else:
                     lines.append("  （表结构信息为空）")
