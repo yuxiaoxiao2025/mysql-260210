@@ -874,14 +874,19 @@ Return ONLY a JSON object with keys: `sql`, `filename`, `sheet_name`, `reasoning
                     api_params['enable_thinking'] = True
                 response = Generation.call(**api_params)
 
+            # 跟踪是否有实际输出
+            has_content = False
+
             for chunk in response:
                 choice = self._extract_stream_choice(chunk)
                 if choice:
                     thinking = getattr(choice, "reasoning_content", None)
                     content = getattr(choice, "content", None)
                     if thinking:
+                        has_content = True
                         yield {"type": "thinking", "content": str(thinking)}
                     if content:
+                        has_content = True
                         yield {"type": "content", "content": str(content)}
 
                 usage = getattr(chunk, "usage", None)
@@ -915,6 +920,11 @@ Return ONLY a JSON object with keys: `sql`, `filename`, `sheet_name`, `reasoning
                         model="qwen-plus"
                     )
                     yield {"type": "usage", "usage": usage_info}
+
+            # 检查是否有输出，无输出时返回降级消息
+            if not has_content:
+                logger.warning("chat_stream: No content generated from LLM")
+                yield {"type": "content", "content": "抱歉，我暂时无法回答这个问题。请稍后再试。"}
         except Exception as e:
             logger.error(f"Chat stream failed: {e}")
             yield {"type": "error", "content": str(e)}
