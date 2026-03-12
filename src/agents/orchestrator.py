@@ -120,7 +120,7 @@ class Orchestrator:
             context: 执行上下文
 
         Returns:
-            AgentContext: 更新后的上下文，其中 execution_result 包含 generator 对象
+            AgentContext: 更新后的上下文，其中 execution_result 包含 generator 对象或错误消息
         """
         # 检索相关schema（可选）
         retrieval_res = self.retrieval_agent.run(context)
@@ -129,8 +129,17 @@ class Orchestrator:
 
         # 流式问答
         knowledge_res = self.knowledge_agent.run(context)
+
         if not knowledge_res.success:
             context.step_history.append("knowledge_failed")
+            # 设置错误消息作为执行结果
+            context.execution_result = knowledge_res.message
+            return context
+
+        # 验证 generator 是否有效
+        if knowledge_res.data is None:
+            context.step_history.append("knowledge_failed")
+            context.execution_result = "对话服务暂时不可用，请稍后再试。"
             return context
 
         context.execution_result = knowledge_res.data  # generator
