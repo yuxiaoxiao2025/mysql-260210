@@ -47,7 +47,7 @@ class KnowledgeAgent(BaseAgent):
                 logger.error("chat_stream returned None")
                 return AgentResult(
                     success=False,
-                    message="LLM 服务返回异常",
+                    message="对话服务返回异常",
                     data=None
                 )
 
