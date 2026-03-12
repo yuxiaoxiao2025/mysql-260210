@@ -1170,3 +1170,78 @@ JSON Object:
             "suggestions": suggestions,
             "best_match": suggestions[0]["value"] if suggestions else None
         }
+
+    def chat_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        system_prompt: str = None
+    ) -> "ChatResponse":
+        """支持工具调用的对话
+
+        Args:
+            messages: 对话消息列表
+            tools: 工具定义列表
+            system_prompt: 系统提示词
+
+        Returns:
+            ChatResponse: 包含 content 和 tool_calls 的响应
+        """
+        from src.llm_tool_models import ChatResponse, ToolCall
+
+        if not self.api_key:
+            logger.error("chat_with_tools: API key not configured")
+            return ChatResponse(content="API 密钥未配置")
+
+        full_messages = []
+        if system_prompt:
+            full_messages.append({"role": "system", "content": system_prompt})
+        full_messages.extend(messages)
+
+        try:
+            if self.client:
+                response = self.client.chat.completions.create(
+                    model="qwen-plus",
+                    messages=full_messages,
+                    tools=tools,
+                    tool_choice="auto"
+                )
+            else:
+                # DashScope 原生模式
+                api_params = {
+                    'model': 'qwen-plus',
+                    'messages': full_messages,
+                    'tools': tools,
+                    'result_format': 'message'
+                }
+                response = Generation.call(**api_params)
+
+            return self._parse_tool_response(response)
+
+        except Exception as e:
+            logger.error(f"chat_with_tools failed: {e}", exc_info=True)
+            return ChatResponse(content=f"对话服务异常：{str(e)}")
+
+    def _parse_tool_response(self, response) -> "ChatResponse":
+        """解析工具调用响应"""
+        from src.llm_tool_models import ChatResponse, ToolCall
+
+        # 提取 message
+        if hasattr(response, 'choices') and response.choices:
+            message = response.choices[0].message
+        elif hasattr(response, 'output') and response.output:
+            message = response.output.choices[0].message
+        else:
+            return ChatResponse(content="响应格式异常")
+
+        # 提取 tool_calls
+        tool_calls = []
+        if hasattr(message, 'tool_calls') and message.tool_calls:
+            for tc in message.tool_calls:
+                tool_calls.append(ToolCall.from_openai(tc))
+
+        return ChatResponse(
+            content=message.content,
+            tool_calls=tool_calls,
+            finish_reason="tool_calls" if tool_calls else "stop"
+        )
