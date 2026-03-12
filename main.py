@@ -50,9 +50,13 @@ from src.memory.concept_store import ConceptStoreService
 from src.memory.context_memory import ContextMemoryService
 from src.dialogue.startup_wizard import StartupWizard
 from src.dialogue.dialogue_engine import DialogueEngine, DialogueState
+from src.dialogue.concept_recognizer import ConceptRecognizer
+from src.dialogue.question_generator import QuestionGenerator
 from src.agents.orchestrator import Orchestrator
 from src.agents.impl.review_agent import ReviewAgent
 from src.agents.config import ReviewAgentConfig
+from src.agents.models import AgentResult
+import types
 
 def print_welcome(agent_mode=False):
     print("=" * 60)
@@ -207,22 +211,24 @@ def main():
         logger.info("对话引擎初始化成功")
         print("[OK] 对话引擎初始化成功！")
 
-        # 初始化 Orchestrator (如果启用 agent-mode)
-        orchestrator = None
-        if args.agent_mode:
-            print("正在初始化 Orchestrator...")
-            try:
-                orchestrator = Orchestrator(
-                    llm_client=llm,
-                    knowledge_loader=knowledge_loader,
-                    review_agent=ReviewAgent(ReviewAgentConfig(name="review"))
-                )
-                logger.info("Orchestrator 初始化成功")
-                print("[OK] Orchestrator 初始化成功！")
-            except Exception as e:
-                logger.error(f"Orchestrator 初始化失败: {e}")
-                print(f"[WARN] Orchestrator 初始化失败: {e}")
-                print("将使用传统模式继续运行...")
+        # 初始化 Orchestrator (chat模式和agent-mode共用)
+        print("正在初始化 Orchestrator...")
+        try:
+            orchestrator = Orchestrator(
+                llm_client=llm,
+                knowledge_loader=knowledge_loader,
+                review_agent=ReviewAgent(ReviewAgentConfig(name="review"))
+            )
+            # 为IntentAgent注入概念学习组件
+            orchestrator.intent_agent.concept_store = concept_store
+            orchestrator.intent_agent.concept_recognizer = ConceptRecognizer(concept_store)
+            orchestrator.intent_agent.question_generator = QuestionGenerator()
+            logger.info("Orchestrator 初始化成功")
+            print("[OK] Orchestrator 初始化成功！")
+        except Exception as e:
+            logger.error(f"Orchestrator 初始化失败: {e}")
+            print(f"[WARN] Orchestrator 初始化失败: {e}")
+            orchestrator = None
 
         # 检查数据库结构变化
         print("正在检查数据库结构变化...")
@@ -256,13 +262,19 @@ def main():
                     print(f"  {i+1}. {t}")
                 continue
 
-            # 新增：chat 命令 - 进入对话模式
+            # 新增：chat 命令 - 进入对话模式（使用Orchestrator）
             if user_input.lower() == 'chat':
+                if not orchestrator:
+                    print("[ERR] Orchestrator 未初始化，无法进入对话模式")
+                    continue
+
                 print("\n" + "=" * 60)
                 print("进入对话模式")
                 print("你好，我是你的停车数据库助手，有什么可以帮你？")
                 print("输入 'exit' 或 'quit' 退出对话模式")
                 print("=" * 60)
+
+                chat_history = []
 
                 while True:
                     try:
@@ -274,24 +286,70 @@ def main():
                             print("退出对话模式")
                             break
 
-                        # 使用对话引擎处理输入
-                        response = dialogue_engine.process_input(chat_input)
-                        print(f"\n[助手] {response.message}")
+                        # 使用Orchestrator处理输入
+                        context = orchestrator.process(chat_input, chat_history)
 
-                        if response.options:
-                            for i, opt in enumerate(response.options):
-                                print(f"  {chr(65+i)}. {opt}")
+                        # 处理澄清
+                        if context.pending_clarification:
+                            clarification_msg = context.intent.clarification_question if context.intent else "请提供更多细节"
+                            # C1修复：先追加 user，再追加 assistant
+                            chat_history.append({"role": "user", "content": chat_input})
+                            chat_history.append({"role": "assistant", "content": clarification_msg})
+                            print(f"\n[助手] {clarification_msg}")
+                            continue
 
-                        if response.state == DialogueState.EXECUTING:
-                            print("[执行中...] 这里将调用实际执行逻辑")
-                            # TODO: 集成实际执行逻辑
-                            dialogue_engine.reset()
+                        # 处理确认（ReviewAgent）
+                        if context.step_history and "review" in context.step_history:
+                            if isinstance(context.execution_result, AgentResult):
+                                if context.execution_result.next_action == "ask_user":
+                                    print(f"\n[助手] {context.execution_result.message}")
+                                    confirm = input("确认执行？(y/n) > ").strip().lower()
+                                    # I3修复：记录确认交互
+                                    chat_history.append({"role": "user", "content": chat_input})
+                                    if confirm == 'y':
+                                        chat_history.append({"role": "assistant", "content": "用户确认执行"})
+                                        context = orchestrator.process(
+                                            chat_input,
+                                            chat_history,
+                                            user_confirmation=True
+                                        )
+                                    else:
+                                        chat_history.append({"role": "assistant", "content": "已取消操作"})
+                                        print("[助手] 已取消操作")
+                                        continue
+
+                        # 处理流式输出
+                        assistant_response = ""
+                        if isinstance(context.execution_result, types.GeneratorType):
+                            print("\n[助手] ", end="", flush=True)
+                            for chunk in context.execution_result:
+                                if chunk.get("type") == "thinking":
+                                    # 可选：显示思考过程
+                                    pass
+                                elif chunk.get("type") == "content":
+                                    content = chunk.get("content", "")
+                                    print(content, end="", flush=True)
+                                    assistant_response += content
+                            print()  # 换行
+                        else:
+                            # 非流式结果（业务操作）
+                            if context.execution_result:
+                                assistant_response = "操作已完成"
+                                print(f"\n[助手] {assistant_response}")
+                            else:
+                                assistant_response = "处理完成"
+                                print(f"\n[助手] {assistant_response}")
+
+                        # C2/I2修复：记录完整的对话历史
+                        chat_history.append({"role": "user", "content": chat_input})
+                        if assistant_response:
+                            chat_history.append({"role": "assistant", "content": assistant_response})
 
                     except KeyboardInterrupt:
                         print("\n退出对话模式")
                         break
                     except Exception as e:
-                        logger.error(f"对话模式错误: {e}")
+                        logger.error(f"对话模式错误: {e}", exc_info=True)
                         print(f"[ERR] 对话出错: {e}")
 
                 print("=" * 60)
