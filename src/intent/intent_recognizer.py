@@ -68,7 +68,7 @@ class IntentRecognizer:
         # 2. 调用 LLM 进行深度识别
         try:
             # 获取操作上下文
-            operations_context = self.knowledge_loader.get_operation_context_for_llm()
+            operations_context = self.knowledge_loader.get_operation_context_for_llm() if self.knowledge_loader else ""
 
             # 获取枚举值
             enum_values = {}
@@ -121,6 +121,10 @@ class IntentRecognizer:
         Returns:
             匹配结果字典，未匹配返回 None
         """
+        # Check if knowledge_loader is available
+        if self.knowledge_loader is None:
+            return None
+
         matched_ops = self.knowledge_loader.find_operations_by_keywords(user_input)
 
         if not matched_ops:
@@ -235,6 +239,10 @@ class IntentRecognizer:
         Returns:
             枚举值字典
         """
+        # 如果没有知识库加载器，返回空字典
+        if self.knowledge_loader is None:
+            return {}
+
         enums = {}
 
         # 始终加载场库和操作员（常用）
@@ -269,16 +277,21 @@ class IntentRecognizer:
         is_matched = False
 
         if operation_id:
-            operation = self.knowledge_loader.get_operation(operation_id)
-            if operation:
-                operation_name = operation.name
-                is_matched = True
+            # Check if knowledge_loader is available
+            if self.knowledge_loader is None:
+                operation_name = operation_id  # Use ID as name when knowledge loader is not available
+                is_matched = False  # Consider as not matched when no knowledge loader
+            else:
+                operation = self.knowledge_loader.get_operation(operation_id)
+                if operation:
+                    operation_name = operation.name
+                    is_matched = True
 
         # 验证和补全参数
         params = result.get("params", {})
         missing_params = result.get("missing_params", [])
 
-        if operation_id and is_matched:
+        if operation_id and is_matched and self.knowledge_loader is not None:
             operation = self.knowledge_loader.get_operation(operation_id)
             if operation:
                 # 验证枚举参数
@@ -324,7 +337,7 @@ class IntentRecognizer:
         Returns:
             帮助文本
         """
-        operation = self.knowledge_loader.get_operation(operation_id)
+        operation = self.knowledge_loader.get_operation(operation_id) if self.knowledge_loader else None
         if not operation:
             return f"未找到操作: {operation_id}"
 
@@ -342,7 +355,7 @@ class IntentRecognizer:
             for param in operation.params:
                 required = "必需" if param.required else "可选"
                 enum_info = ""
-                if param.enum_from:
+                if param.enum_from and self.knowledge_loader:
                     values = self.knowledge_loader.get_enum_values_flat(param.enum_from)
                     if values:
                         enum_info = f" (可选值: {', '.join(values[:5])}...)"
@@ -380,6 +393,9 @@ class IntentRecognizer:
         Returns:
             操作列表文本
         """
+        if self.knowledge_loader is None:
+            return "# 无可用操作\n\n知识库加载器不可用"
+
         if category == "query":
             operations = self.knowledge_loader.get_query_operations()
             title = "查询操作"

@@ -89,10 +89,15 @@ class MVPToolService:
             table_name = match.table_name
 
             # 处理 "db.table" 格式（当 TableMatch.database_name 为空时）
+            # Also handle the case where database is already embedded in table_name and db_name is provided
             if '.' in table_name and not db_name:
                 parts = table_name.split('.', 1)
                 db_name = parts[0]
                 table_name = parts[1]
+            elif '.' in table_name and db_name and table_name.startswith(db_name + "."):
+                # If table_name already includes the database name (e.g., "dbname.tablename")
+                # and we also have db_name, avoid duplication by removing db_name from table_name
+                table_name = table_name.replace(db_name + ".", "", 1)
 
             display_name = f"{db_name}.{table_name}" if db_name else table_name
             lines.append(f"\n### 表：{display_name}")
