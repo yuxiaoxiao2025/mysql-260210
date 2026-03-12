@@ -211,47 +211,24 @@ def main():
         # logger.info("对话引擎初始化成功")
         # print("[OK] 对话引擎初始化成功！")
 
-<<<<<<< HEAD
         # 初始化 Orchestrator (chat模式和agent-mode共用)
         print("正在初始化 Orchestrator...")
-=======
-        # 初始化 Orchestrator
-        print("正在初始化 Orchestrator...")
-        orchestrator = None
->>>>>>> 335ee2f (feat(main): 重写chat模式使用Orchestrator)
         try:
             orchestrator = Orchestrator(
                 llm_client=llm,
                 knowledge_loader=knowledge_loader,
-<<<<<<< HEAD
                 review_agent=ReviewAgent(ReviewAgentConfig(name="review"))
             )
             # 为IntentAgent注入概念学习组件
             orchestrator.intent_agent.concept_store = concept_store
             orchestrator.intent_agent.concept_recognizer = ConceptRecognizer(concept_store)
             orchestrator.intent_agent.question_generator = QuestionGenerator()
-=======
-                review_agent=ReviewAgent(ReviewAgentConfig(name="review")) if args.agent_mode else None
-            )
-            
-            # 为 IntentAgent 注入 concept_store
-            from src.dialogue.concept_recognizer import ConceptRecognizer
-            from src.dialogue.question_generator import QuestionGenerator
-            orchestrator.intent_agent.concept_store = concept_store
-            orchestrator.intent_agent.concept_recognizer = ConceptRecognizer(concept_store)
-            orchestrator.intent_agent.question_generator = QuestionGenerator()
-            
->>>>>>> 335ee2f (feat(main): 重写chat模式使用Orchestrator)
             logger.info("Orchestrator 初始化成功")
             print("[OK] Orchestrator 初始化成功！")
         except Exception as e:
             logger.error(f"Orchestrator 初始化失败: {e}")
             print(f"[WARN] Orchestrator 初始化失败: {e}")
-<<<<<<< HEAD
             orchestrator = None
-=======
-            print("将使用传统模式继续运行...")
->>>>>>> 335ee2f (feat(main): 重写chat模式使用Orchestrator)
 
         # 检查数据库结构变化
         print("正在检查数据库结构变化...")
@@ -290,11 +267,6 @@ def main():
                 if not orchestrator:
                     print("[ERR] Orchestrator 未初始化，无法进入对话模式")
                     continue
-<<<<<<< HEAD
-
-=======
-                    
->>>>>>> 335ee2f (feat(main): 重写chat模式使用Orchestrator)
                 print("\n" + "=" * 60)
                 print("进入对话模式")
                 print("你好，我是你的停车数据库助手，有什么可以帮你？")
@@ -318,62 +290,35 @@ def main():
 
                         # 处理澄清
                         if context.pending_clarification:
-<<<<<<< HEAD
                             clarification_msg = context.intent.clarification_question if context.intent else "请提供更多细节"
                             # C1修复：先追加 user，再追加 assistant
                             chat_history.append({"role": "user", "content": chat_input})
                             chat_history.append({"role": "assistant", "content": clarification_msg})
                             print(f"\n[助手] {clarification_msg}")
-=======
-                            print(f"\n[助手] {context.intent.clarification_question}")
-                            chat_history.append({
-                                "role": "assistant",
-                                "content": context.intent.clarification_question
-                            })
-                            chat_history.append({
-                                "role": "user",
-                                "content": chat_input
-                            })
->>>>>>> 335ee2f (feat(main): 重写chat模式使用Orchestrator)
                             continue
 
                         # 处理确认（ReviewAgent）
                         if context.step_history and "review" in context.step_history:
-<<<<<<< HEAD
-=======
-                            from src.agents.models import AgentResult
->>>>>>> 335ee2f (feat(main): 重写chat模式使用Orchestrator)
                             if isinstance(context.execution_result, AgentResult):
                                 if context.execution_result.next_action == "ask_user":
                                     print(f"\n[助手] {context.execution_result.message}")
                                     confirm = input("确认执行？(y/n) > ").strip().lower()
-<<<<<<< HEAD
                                     # I3修复：记录确认交互
                                     chat_history.append({"role": "user", "content": chat_input})
                                     if confirm == 'y':
                                         chat_history.append({"role": "assistant", "content": "用户确认执行"})
-=======
-                                    if confirm == 'y':
->>>>>>> 335ee2f (feat(main): 重写chat模式使用Orchestrator)
                                         context = orchestrator.process(
                                             chat_input,
                                             chat_history,
                                             user_confirmation=True
                                         )
                                     else:
-<<<<<<< HEAD
                                         chat_history.append({"role": "assistant", "content": "已取消操作"})
-=======
->>>>>>> 335ee2f (feat(main): 重写chat模式使用Orchestrator)
                                         print("[助手] 已取消操作")
                                         continue
 
                         # 处理流式输出
-<<<<<<< HEAD
                         assistant_response = ""
-=======
-                        import types
->>>>>>> 335ee2f (feat(main): 重写chat模式使用Orchestrator)
                         if isinstance(context.execution_result, types.GeneratorType):
                             print("\n[助手] ", end="", flush=True)
                             for chunk in context.execution_result:
@@ -381,18 +326,13 @@ def main():
                                     # 可选：显示思考过程
                                     pass
                                 elif chunk.get("type") == "content":
-<<<<<<< HEAD
                                     content = chunk.get("content", "")
                                     print(content, end="", flush=True)
                                     assistant_response += content
-=======
-                                    print(chunk.get("content", ""), end="", flush=True)
->>>>>>> 335ee2f (feat(main): 重写chat模式使用Orchestrator)
                             print()  # 换行
                         else:
                             # 非流式结果（业务操作）
                             if context.execution_result:
-<<<<<<< HEAD
                                 assistant_response = "操作已完成"
                                 print(f"\n[助手] {assistant_response}")
                             else:
@@ -403,14 +343,6 @@ def main():
                         chat_history.append({"role": "user", "content": chat_input})
                         if assistant_response:
                             chat_history.append({"role": "assistant", "content": assistant_response})
-=======
-                                print(f"\n[助手] 操作已完成")
-                            else:
-                                print(f"\n[助手] 处理完成")
-
-                        # 更新对话历史
-                        chat_history.append({"role": "user", "content": chat_input})
->>>>>>> 335ee2f (feat(main): 重写chat模式使用Orchestrator)
 
                     except KeyboardInterrupt:
                         print("\n退出对话模式")
