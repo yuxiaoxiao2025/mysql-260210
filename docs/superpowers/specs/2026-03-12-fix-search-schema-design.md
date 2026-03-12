@@ -117,11 +117,12 @@ def _tool_search_schema(self, query: str) -> str:
 
     for match in result.matches[:max_tables]:
         # 跨库表名解析
-        # TableMatch 已包含 database_name 和 table_name 字段
-        db_name = getattr(match, 'database_name', None)
+        # TableMatch.database_name 默认为空字符串 ""，需检查真值
+        # 不能用 is not None 判断，因为空字符串也是 truthy 的 falsy 值
+        db_name = getattr(match, 'database_name', None) or None
         table_name = match.table_name
 
-        # 处理 "db.table" 格式
+        # 处理 "db.table" 格式（当 TableMatch.database_name 为空时）
         if '.' in table_name and not db_name:
             parts = table_name.split('.', 1)
             db_name = parts[0]
@@ -133,8 +134,8 @@ def _tool_search_schema(self, query: str) -> str:
         # 获取字段信息（带错误处理）
         try:
             if db_name:
-                # 跨库查询
-                schema_info = self.db.get_table_schema(table_name, schema=db_name)
+                # 使用专用的跨库查询方法，参数顺序: (db_name, table_name)
+                schema_info = self.db.get_table_schema_cross_db(db_name, table_name)
             else:
                 schema_info = self.db.get_table_schema(table_name)
 
