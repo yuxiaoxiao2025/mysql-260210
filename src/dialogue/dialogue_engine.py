@@ -1,15 +1,18 @@
 # src/dialogue/dialogue_engine.py
 """
-Dialogue engine for intelligent conversation.
+dialogue_engine.py - DEPRECATED
 
-Core engine that coordinates:
-1. Context memory (current plate, history)
-2. Concept recognition (what needs clarification)
-3. Question generation (how to ask)
-4. Intent confirmation (before execution)
+This module has been deprecated. The functionality has been integrated into:
+- IntentAgent: Concept recognition and learning
+- Orchestrator: Dialogue flow management
+
+For migration guide, see: docs/migration/dialogue-engine-to-orchestrator.md
+
+This file is kept for backward compatibility but will be removed in a future version.
 """
 
 import logging
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Optional
@@ -20,11 +23,19 @@ from src.memory.memory_models import ConceptMapping
 from src.dialogue.concept_recognizer import ConceptRecognizer, RecognizedConcept
 from src.dialogue.question_generator import QuestionGenerator, ClarificationQuestion
 
+# 显示废弃警告
+warnings.warn(
+    "DialogueEngine is deprecated. Use Orchestrator instead. "
+    "See docs/migration/dialogue-engine-to-orchestrator.md",
+    DeprecationWarning,
+    stacklevel=2
+)
+
 logger = logging.getLogger(__name__)
 
 
 class DialogueState(Enum):
-    """对话状态"""
+    """对话状态 - 已废弃，请使用 AgentContext.pending_clarification"""
     IDLE = "idle"                      # 空闲，等待用户输入
     CLARIFYING = "clarifying"          # 澄清中，等待用户回答
     CONFIRMING = "confirming"          # 确认中，等待用户确认
@@ -34,7 +45,7 @@ class DialogueState(Enum):
 
 @dataclass
 class DialogueResponse:
-    """对话响应"""
+    """对话响应 - 已废弃，请使用 AgentContext 和 IntentModel"""
     message: str                       # 响应消息
     state: DialogueState               # 对话状态
     needs_input: bool = True           # 是否需要用户输入
@@ -45,9 +56,21 @@ class DialogueResponse:
 
 class DialogueEngine:
     """
-    对话引擎
+    对话引擎 - 已废弃
 
-    协调记忆、概念识别、问题生成，实现智能对话。
+    请使用 Orchestrator 替代此类。
+
+    迁移示例:
+        # 旧代码
+        from src.dialogue.dialogue_engine import DialogueEngine
+        dialogue_engine = DialogueEngine(concept_store, context_memory)
+        response = dialogue_engine.process_input(user_input)
+
+        # 新代码
+        from src.agents.orchestrator import Orchestrator
+        orchestrator = Orchestrator(llm_client, knowledge_loader)
+        orchestrator.intent_agent.concept_store = concept_store
+        context = orchestrator.process(user_input, chat_history)
     """
 
     def __init__(
@@ -57,15 +80,11 @@ class DialogueEngine:
         concept_recognizer: Optional[ConceptRecognizer] = None,
         question_generator: Optional[QuestionGenerator] = None,
     ):
-        """
-        初始化对话引擎。
-
-        Args:
-            concept_store: 概念存储服务
-            context_memory: 上下文记忆服务
-            concept_recognizer: 概念识别器
-            question_generator: 问题生成器
-        """
+        warnings.warn(
+            "DialogueEngine is deprecated. Use Orchestrator instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         self.concept_store = concept_store
         self.context_memory = context_memory
         self.concept_recognizer = concept_recognizer or ConceptRecognizer(concept_store)
@@ -75,19 +94,15 @@ class DialogueEngine:
         self.pending_questions: List[ClarificationQuestion] = []
         self.current_concept_term: Optional[str] = None
         self.learned_concepts: List[ConceptMapping] = []
-        self.pending_intent: Optional[str] = None  # Store intent for execution
+        self.pending_intent: Optional[str] = None
 
-        logger.info("DialogueEngine initialized")
+        logger.warning("DialogueEngine initialized - DEPRECATED, use Orchestrator instead")
 
     def process_input(self, user_input: str) -> DialogueResponse:
         """
-        处理用户输入。
+        处理用户输入 - 已废弃
 
-        Args:
-            user_input: 用户输入
-
-        Returns:
-            对话响应
+        请使用 Orchestrator.process() 替代。
         """
         logger.debug(f"Processing input: {user_input}")
 
@@ -202,8 +217,6 @@ class DialogueEngine:
 
     def _generate_confirmation(self) -> DialogueResponse:
         """生成确认问题"""
-        # 根据学习到的概念生成意图描述
-        # 这里简化处理，实际应该调用 LLM 生成
         intent_parts = []
         for concept in self.learned_concepts:
             intent_parts.append(f"{concept.user_terms[0]}({concept.description})")
@@ -211,7 +224,7 @@ class DialogueEngine:
         intent_description = "执行相关操作"
         if intent_parts:
             intent_description = f"根据你说的{', '.join(intent_parts)}，执行查询"
-        
+
         self.pending_intent = intent_description
 
         return DialogueResponse(
@@ -226,7 +239,7 @@ class DialogueEngine:
         if answer in ["可以", "是", "确认", "好的", "A"]:
             self.state = DialogueState.EXECUTING
             self.learned_concepts.clear()
-            
+
             intent_to_execute = self.pending_intent
             self.pending_intent = None
 
@@ -252,14 +265,11 @@ class DialogueEngine:
         concepts: List[RecognizedConcept]
     ) -> DialogueResponse:
         """准备执行"""
-        # 所有概念都已识别，生成确认
         self.state = DialogueState.CONFIRMING
 
-        # 构建意图描述
         intent_description = self._build_intent_description(resolved_input, concepts)
         self.pending_intent = intent_description
 
-        # 记录助手消息
         self.context_memory.add_assistant_message(
             f"准备{intent_description}",
             metadata={"intent": intent_description}
@@ -278,8 +288,6 @@ class DialogueEngine:
         concepts: List[RecognizedConcept]
     ) -> str:
         """构建意图描述"""
-        # 这里简化处理，实际应该调用 LLM
-        # 从概念中获取映射信息
         concept_info = []
         for concept in concepts:
             if concept.matched_concept_id:

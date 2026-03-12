@@ -49,7 +49,7 @@ from src.feedback.intent_parser import FeedbackParser
 from src.memory.concept_store import ConceptStoreService
 from src.memory.context_memory import ContextMemoryService
 from src.dialogue.startup_wizard import StartupWizard
-from src.dialogue.dialogue_engine import DialogueEngine, DialogueState
+# DialogueEngine已废弃 - from src.dialogue.dialogue_engine import DialogueEngine, DialogueState
 from src.dialogue.concept_recognizer import ConceptRecognizer
 from src.dialogue.question_generator import QuestionGenerator
 from src.agents.orchestrator import Orchestrator
@@ -205,11 +205,11 @@ def main():
         logger.info("智能检索增强组件初始化成功")
         print("[OK] 智能检索增强组件初始化成功！")
 
-        # 初始化对话引擎
-        print("正在初始化对话引擎...")
-        dialogue_engine = DialogueEngine(concept_store, context_memory)
-        logger.info("对话引擎初始化成功")
-        print("[OK] 对话引擎初始化成功！")
+        # 对话引擎已废弃 - 不再初始化
+        # print("正在初始化对话引擎...")
+        # dialogue_engine = DialogueEngine(concept_store, context_memory)
+        # logger.info("对话引擎初始化成功")
+        # print("[OK] 对话引擎初始化成功！")
 
         # 初始化 Orchestrator (chat模式和agent-mode共用)
         print("正在初始化 Orchestrator...")
@@ -527,27 +527,34 @@ def main():
             is_sql = first_word in ['select', 'show', 'describe', 'desc', 'explain', 'update', 'delete', 'insert', 'drop', 'alter', 'truncate']
 
             if not is_sql:
-                # 使用对话引擎处理输入
-                response = dialogue_engine.process_input(user_input)
-                
-                # 如果不是执行状态，显示消息并继续（等待下一次输入）
-                if response.state != DialogueState.EXECUTING:
-                    print(f"\n[助手] {response.message}")
-                    if response.options:
-                        for i, opt in enumerate(response.options):
-                            print(f"  {chr(65+i)}. {opt}")
+                # 使用Orchestrator处理非SQL输入
+                if orchestrator:
+                    context = orchestrator.process(user_input, [])
+
+                    # 处理澄清
+                    if context.pending_clarification:
+                        clarification_msg = context.intent.clarification_question if context.intent else "请提供更多细节"
+                        print(f"\n[助手] {clarification_msg}")
+                        continue
+
+                    # 如果是业务操作，获取执行文本
+                    if context.intent and context.intent.type in ["query", "mutation"]:
+                        query_to_execute_text = context.intent.reasoning or user_input
+                        query_to_execute_text = context_memory.resolve_reference(query_to_execute_text)
+                        print(f"🔄 正在根据意图执行: {query_to_execute_text}")
+                    else:
+                        # 对话或知识问答
+                        if isinstance(context.execution_result, types.GeneratorType):
+                            print("\n[助手] ", end="", flush=True)
+                            for chunk in context.execution_result:
+                                if chunk.get("type") == "content":
+                                    print(chunk.get("content", ""), end="", flush=True)
+                            print()
+                        continue
+                else:
+                    # Orchestrator不可用，跳过
+                    print("[WARN] Orchestrator未初始化，请使用SQL命令或输入'chat'进入对话模式")
                     continue
-                
-                # 如果是执行状态，使用澄清后的意图进行执行
-                print(f"\n[助手] {response.message}")
-                query_to_execute_text = response.intent_description or user_input
-                # 解析代词引用 (Double check, although DialogueEngine already did it)
-                query_to_execute_text = context_memory.resolve_reference(query_to_execute_text)
-                
-                print(f"🔄 正在根据意图执行: {query_to_execute_text}")
-                
-                # 重置对话引擎状态
-                dialogue_engine.reset()
 
                 # 尝试智能意图识别
                 print("🔍 正在识别操作意图...")
