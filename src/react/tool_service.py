@@ -61,27 +61,70 @@ class MVPToolService:
             return f"工具执行失败：{str(e)}"
 
     def _tool_search_schema(self, query: str) -> str:
-        """搜索表结构
+        """搜索表结构，返回候选表及完整字段信息
 
         Args:
             query: 搜索关键词
 
         Returns:
-            str: 相关表的信息
+            str: 候选表列表，每个表包含字段名、类型、注释
         """
         result = self.retrieval.search(query, top_k=5)
 
         if not result.matches:
             return "未找到相关的表。请尝试其他关键词。"
 
-        lines = ["找到以下相关表："]
-        for match in result.matches:
+        # 限制返回表数量（考虑 Token 限制）
+        max_tables = 3
+        max_fields = 10
+
+        lines = [f"找到 {len(result.matches)} 个相关表（显示前 {max_tables} 个）："]
+
+        for match in result.matches[:max_tables]:
+            # 跨库表名解析
+            # TableMatch.database_name 默认为空字符串 ""，需检查真值
+            # 不能用 is not None 判断，因为空字符串也是 truthy 的 falsy 值
+            db_name = getattr(match, 'database_name', None) or None
             table_name = match.table_name
-            # description 可能在不同位置
-            description = getattr(match, 'description', None) or ""
-            lines.append(f"- {table_name}")
-            if description:
-                lines.append(f"  说明：{description[:100]}")
+
+            # 处理 "db.table" 格式（当 TableMatch.database_name 为空时）
+            if '.' in table_name and not db_name:
+                parts = table_name.split('.', 1)
+                db_name = parts[0]
+                table_name = parts[1]
+
+            display_name = f"{db_name}.{table_name}" if db_name else table_name
+            lines.append(f"\n### 表：{display_name}")
+
+            # 获取字段信息（带错误处理）
+            try:
+                if db_name:
+                    # 使用专用的跨库查询方法，参数顺序: (db_name, table_name)
+                    schema_info = self.db.get_table_schema_cross_db(db_name, table_name)
+                else:
+                    schema_info = self.db.get_table_schema(table_name)
+
+                if schema_info:
+                    lines.append("字段列表：")
+                    for col in schema_info[:max_fields]:
+                        col_name = col['name']
+                        col_type = col['type']
+                        col_comment = col.get('comment', '')
+
+                        # 格式：字段名 (类型) -- 注释
+                        if col_comment:
+                            lines.append(f"  - {col_name} ({col_type}) -- {col_comment}")
+                        else:
+                            lines.append(f"  - {col_name} ({col_type})")
+
+                    if len(schema_info) > max_fields:
+                        lines.append(f"  ... 共 {len(schema_info)} 个字段")
+                else:
+                    lines.append("  （表结构信息为空）")
+
+            except Exception as e:
+                logger.warning(f"获取表 {display_name} 结构失败: {e}")
+                lines.append(f"  （字段信息获取失败，请尝试直接查询）")
 
         return "\n".join(lines)
 

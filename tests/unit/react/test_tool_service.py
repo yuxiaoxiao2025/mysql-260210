@@ -54,16 +54,24 @@ class TestSearchSchema:
         # 创建模拟的匹配结果
         mock_match = Mock()
         mock_match.table_name = "cloud_fixed_plate"
+        mock_match.database_name = None  # Explicitly set database_name to None
         mock_match.description = "车牌表"
 
         mock_result = Mock()
         mock_result.matches = [mock_match]
         tool_service.retrieval.search.return_value = mock_result
 
+        # Mock the database schema call to return empty schema (to match old behavior expectations)
+        tool_service.db.get_table_schema.return_value = [
+            {"name": "id", "type": "int", "comment": "ID"},
+            {"name": "name", "type": "varchar(50)", "comment": "名称"}
+        ]
+
         result = tool_service._tool_search_schema("车牌")
 
         assert "cloud_fixed_plate" in result
-        assert "车牌表" in result
+        assert "id" in result  # Should contain field info now
+        assert "varchar(50)" in result  # Should contain field type
 
     def test_search_without_description(self, tool_service):
         """测试搜索结果无描述"""
@@ -78,6 +86,32 @@ class TestSearchSchema:
         result = tool_service._tool_search_schema("用户")
 
         assert "users" in result
+
+    def test_search_schema_returns_field_info(self, tool_service):
+        """测试返回字段信息"""
+        # 模拟匹配结果
+        mock_match = Mock()
+        mock_match.table_name = "cloud_fixed_plate"
+        mock_match.database_name = ""
+        mock_match.description = "车牌表"
+
+        mock_result = Mock()
+        mock_result.matches = [mock_match]
+        tool_service.retrieval.search.return_value = mock_result
+
+        # 模拟数据库返回字段信息
+        tool_service.db.get_table_schema.return_value = [
+            {"name": "id", "type": "bigint", "comment": "主键ID"},
+            {"name": "plate", "type": "varchar(20)", "comment": "车牌号"},
+            {"name": "state", "type": "int", "comment": "状态"}
+        ]
+
+        result = tool_service._tool_search_schema("车牌")
+
+        assert "cloud_fixed_plate" in result
+        assert "plate" in result
+        assert "varchar(20)" in result
+        assert "车牌号" in result
 
 
 class TestExecuteSql:
