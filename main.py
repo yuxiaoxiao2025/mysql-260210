@@ -319,25 +319,56 @@ def main():
 
                         # 处理流式输出
                         assistant_response = ""
-                        if isinstance(context.execution_result, types.GeneratorType):
+
+                        # 检查 execution_result 是否有效
+                        if context.execution_result is None:
+                            assistant_response = "抱歉，处理您的请求时出现问题，请稍后再试。"
+                            print(f"\n[助手] {assistant_response}")
+
+                        elif isinstance(context.execution_result, types.GeneratorType):
                             print("\n[助手] ", end="", flush=True)
-                            for chunk in context.execution_result:
-                                if chunk.get("type") == "thinking":
-                                    # 可选：显示思考过程
-                                    pass
-                                elif chunk.get("type") == "content":
-                                    content = chunk.get("content", "")
-                                    print(content, end="", flush=True)
-                                    assistant_response += content
+
+                            has_content = False
+                            try:
+                                for chunk in context.execution_result:
+                                    if chunk.get("type") == "thinking":
+                                        # 可选：显示思考过程
+                                        pass
+                                    elif chunk.get("type") == "content":
+                                        content = chunk.get("content", "")
+                                        if content:
+                                            has_content = True
+                                            print(content, end="", flush=True)
+                                            assistant_response += content
+                                    elif chunk.get("type") == "error":
+                                        # 处理错误 chunk
+                                        error_msg = chunk.get("content", "未知错误")
+                                        print(f"[错误] {error_msg}", end="", flush=True)
+                                        assistant_response = f"[错误] {error_msg}"
+                                        has_content = True
+                            except Exception as e:
+                                logger.error(f"Error consuming stream: {e}", exc_info=True)
+                                assistant_response = "对话处理出错，请稍后再试。"
+
                             print()  # 换行
+
+                            # 如果没有任何内容输出，给出默认回复
+                            if not has_content:
+                                assistant_response = "抱歉，我没有理解您的问题，请换个方式提问。"
+                                print(assistant_response)
+
+                        elif isinstance(context.execution_result, str):
+                            # 字符串结果（错误消息）
+                            assistant_response = context.execution_result
+                            print(f"\n[助手] {assistant_response}")
+
                         else:
-                            # 非流式结果（业务操作）
+                            # 其他类型结果（业务操作）
                             if context.execution_result:
                                 assistant_response = "操作已完成"
-                                print(f"\n[助手] {assistant_response}")
                             else:
                                 assistant_response = "处理完成"
-                                print(f"\n[助手] {assistant_response}")
+                            print(f"\n[助手] {assistant_response}")
 
                         # C2/I2修复：记录完整的对话历史
                         chat_history.append({"role": "user", "content": chat_input})
