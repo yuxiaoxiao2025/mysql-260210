@@ -28,7 +28,10 @@ jobs:
       DB_HOST: 127.0.0.1
       DB_PORT: 3306
       DB_NAME: test
-      DISABLE_RETRIEVAL: 0
+      DISABLE_RETRIEVAL: "1"
+      CHROMA_DB_PATH: data/ci/chroma_db
+      TABLE_GRAPH_PATH: data/ci/table_graph.json
+      INDEX_PROGRESS_PATH: data/ci/index_progress.json
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +39,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+
+      - name: Create data directories
+        run: mkdir -p data/ci
 
       - name: Install dependencies
         run: pip install -r requirements.txt pytest-cov
