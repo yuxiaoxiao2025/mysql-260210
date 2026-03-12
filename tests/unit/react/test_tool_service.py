@@ -113,6 +113,110 @@ class TestSearchSchema:
         assert "varchar(20)" in result
         assert "车牌号" in result
 
+    def test_search_schema_cross_db_table(self, tool_service):
+        """测试跨库表名解析 (db.table 格式)"""
+        # 模拟跨库表名
+        mock_match = Mock()
+        mock_match.table_name = "db_parking_center.cloud_fixed_plate"
+        mock_match.database_name = ""  # 空字符串，需从 table_name 解析
+
+        mock_result = Mock()
+        mock_result.matches = [mock_match]
+        tool_service.retrieval.search.return_value = mock_result
+
+        # 模拟跨库查询
+        tool_service.db.get_table_schema_cross_db.return_value = [
+            {"name": "plate", "type": "varchar(20)", "comment": "车牌号"}
+        ]
+
+        result = tool_service._tool_search_schema("车牌")
+
+        # 验证调用了跨库方法
+        tool_service.db.get_table_schema_cross_db.assert_called_once_with(
+            "db_parking_center", "cloud_fixed_plate"
+        )
+        assert "db_parking_center.cloud_fixed_plate" in result
+
+    def test_search_schema_error_handling(self, tool_service):
+        """测试错误处理 - 数据库查询失败时降级"""
+        mock_match = Mock()
+        mock_match.table_name = "nonexistent_table"
+        mock_match.database_name = ""
+
+        mock_result = Mock()
+        mock_result.matches = [mock_match]
+        tool_service.retrieval.search.return_value = mock_result
+
+        # 模拟数据库查询失败
+        tool_service.db.get_table_schema.side_effect = Exception("表不存在")
+
+        result = tool_service._tool_search_schema("测试")
+
+        assert "nonexistent_table" in result
+        assert "字段信息获取失败" in result
+
+    def test_search_schema_token_limit(self, tool_service):
+        """测试 Token 限制 - 验证返回数量限制"""
+        # 创建 5 个匹配结果
+        matches = []
+        for i in range(5):
+            m = Mock()
+            m.table_name = f"table_{i}"
+            m.database_name = ""
+            matches.append(m)
+
+        mock_result = Mock()
+        mock_result.matches = matches
+        tool_service.retrieval.search.return_value = mock_result
+
+        # 模拟返回 15 个字段
+        tool_service.db.get_table_schema.return_value = [
+            {"name": f"col_{j}", "type": "int", "comment": ""} for j in range(15)
+        ]
+
+        result = tool_service._tool_search_schema("测试")
+
+        # 验证只显示 3 个表
+        assert "显示前 3 个" in result
+        assert "table_0" in result
+        assert "table_2" in result
+        assert "table_3" not in result  # 第 4 个表不显示
+
+        # 验证字段数量限制
+        assert "共 15 个字段" in result
+
+    def test_search_schema_empty_result(self, tool_service):
+        """测试无结果时的处理 - 规格文档要求的第5个测试"""
+        # 模拟无匹配结果
+        mock_result = Mock()
+        mock_result.matches = []
+        tool_service.retrieval.search.return_value = mock_result
+
+        result = tool_service._tool_search_schema("不存在的表")
+
+        assert "未找到相关的表" in result
+
+    def test_search_schema_with_database_name_attr(self, tool_service):
+        """测试 TableMatch.database_name 已有值的情况"""
+        mock_match = Mock()
+        mock_match.table_name = "cloud_fixed_plate"
+        mock_match.database_name = "db_parking_center"  # 已有值
+
+        mock_result = Mock()
+        mock_result.matches = [mock_match]
+        tool_service.retrieval.search.return_value = mock_result
+
+        tool_service.db.get_table_schema_cross_db.return_value = [
+            {"name": "plate", "type": "varchar(20)", "comment": "车牌号"}
+        ]
+
+        result = tool_service._tool_search_schema("车牌")
+
+        # 验证使用 database_name 属性
+        tool_service.db.get_table_schema_cross_db.assert_called_once_with(
+            "db_parking_center", "cloud_fixed_plate"
+        )
+
 
 class TestExecuteSql:
     """测试 execute_sql 工具"""
