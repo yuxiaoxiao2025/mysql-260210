@@ -63,7 +63,7 @@ class Orchestrator:
     def process(
         self,
         user_input: str,
-        chat_history: list | None = None,
+        chat_history: list[dict] | None = None,
         user_confirmation: bool | None = None
     ) -> AgentContext:
         """处理用户输入
@@ -112,11 +112,15 @@ class Orchestrator:
     def _handle_conversation(self, context: AgentContext) -> AgentContext:
         """处理对话和知识问答
 
+        执行对话流程：
+        1. 可选的 schema 检索（为知识问答提供上下文）
+        2. 调用 KnowledgeAgent 进行流式问答
+
         Args:
             context: 执行上下文
 
         Returns:
-            AgentContext: 更新后的上下文
+            AgentContext: 更新后的上下文，其中 execution_result 包含 generator 对象
         """
         # 检索相关schema（可选）
         retrieval_res = self.retrieval_agent.run(context)
@@ -141,6 +145,13 @@ class Orchestrator:
     ) -> AgentContext:
         """处理业务操作（query/mutation）
 
+        执行完整业务流程：
+        1. Retrieval - 信息检索
+        2. Security - 安全检查
+        3. Preview - 预览操作（仅 mutation）
+        4. Review - 人工审核（如果配置）
+        5. Execution - 执行操作
+
         Args:
             context: 执行上下文
             user_confirmation: 用户确认标志
@@ -148,7 +159,7 @@ class Orchestrator:
         Returns:
             AgentContext: 更新后的上下文
         """
-        # 2. Retrieval - 信息检索
+        # 1. Retrieval - 信息检索
         retrieval_res = self.retrieval_agent.run(context)
         if retrieval_res.success:
             context.step_history.append("retrieval")
@@ -159,13 +170,13 @@ class Orchestrator:
             return context
         context.step_history.append("security")
 
-        # 4. Preview - 预览操作 (if mutation)
+        # 2. Preview - 预览操作 (if mutation)
         if context.intent and context.intent.type == "mutation":
             preview_res = self.preview_agent.run(context)
             if preview_res.success:
                 context.step_history.append("preview")
 
-        # 5. Review - 人工审核 (if provided)
+        # 3. Review - 人工审核 (if provided)
         if self.review_agent and user_confirmation is not True:
             review_res = self.review_agent.run(context)
             if review_res.next_action == "ask_user":
@@ -179,7 +190,7 @@ class Orchestrator:
         elif user_confirmation is True:
             context.step_history.append("review_confirmed")
 
-        # 6. Execution - 执行操作
+        # 4. Execution - 执行操作
         self.execution_agent.run(context)
         context.step_history.append("execution")
 
