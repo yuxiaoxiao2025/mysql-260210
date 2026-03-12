@@ -322,6 +322,19 @@ black src/ tests/
 isort src/ tests/
 ```
 
+## ⚠️ 重要变更
+
+### DialogueEngine已废弃
+
+DialogueEngine已被废弃，功能已整合到多智能体架构。请参考 [迁移指南](docs/migration/dialogue-engine-to-orchestrator.md) 更新你的代码。
+
+**主要变更:**
+- 概念学习 → `IntentAgent`
+- 对话流程管理 → `Orchestrator`
+- 流式输出 → `KnowledgeAgent`
+
+---
+
 ## 🤝 贡献
 
 欢迎贡献代码、报告问题或提出建议！请查看 [贡献指南](CONTRIBUTING.md) 了解详情。
