@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 NEED_CONFIRM_MARKER = "__NEED_CONFIRM__"
 
 # Token 限制配置
-MAX_TABLES = 3
-MAX_FIELDS = 10
+MAX_TABLES = 10
+MAX_FIELDS = 20
 
 
 class MVPToolService:
@@ -73,7 +73,7 @@ class MVPToolService:
         Returns:
             str: 候选表列表，每个表包含字段名、类型、注释
         """
-        result = self.retrieval.search(query, top_k=5)
+        result = self.retrieval.search(query, top_k=10)
 
         if not result.matches:
             return "未找到相关的表。请尝试其他关键词。"

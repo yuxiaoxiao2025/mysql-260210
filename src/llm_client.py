@@ -926,8 +926,8 @@ Return ONLY a JSON object with keys: `sql`, `filename`, `sheet_name`, `reasoning
                 logger.warning("chat_stream: No content generated from LLM")
                 yield {"type": "content", "content": "抱歉，我暂时无法回答这个问题。请稍后再试。"}
         except Exception as e:
-            logger.error(f"Chat stream failed: {e}")
-            yield {"type": "error", "content": str(e)}
+            logger.error(f"Chat stream failed: {e}", exc_info=True)
+            yield {"type": "error", "content": f"对话服务暂时不可用：{str(e)}"}
 
     def _extract_stream_choice(self, chunk: Any):
         """兼容 OpenAI/DashScope 两种流式 chunk 结构，返回含 content/reasoning_content 的对象。"""

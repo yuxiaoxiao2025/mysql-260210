@@ -389,7 +389,9 @@ def main():
 
                         else:
                             # 其他类型结果（业务操作）
-                            if context.execution_result:
+                            if isinstance(context.execution_result, AgentResult):
+                                assistant_response = context.execution_result.message
+                            elif context.execution_result:
                                 assistant_response = "操作已完成"
                             else:
                                 assistant_response = "处理完成"
