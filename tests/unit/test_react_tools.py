@@ -10,12 +10,32 @@ class FakeDB:
         self.readonly_called: bool = False
         self.index_metadata_called: bool = False
         self.index_metadata_args: tuple | None = None
+        self.explain_called: bool = False
+        self.last_explain_sql: str | None = None
 
     def execute_query(self, sql: str, params: dict | None = None) -> pd.DataFrame:
         self.last_readonly_sql = sql
         self.readonly_called = True
         # 默认返回一个简单结果，便于后续扩展其他测试
         return pd.DataFrame([{"id": 1, "name": "test"}])
+
+    def explain_readonly_sql(self, sql: str) -> pd.DataFrame:
+        self.explain_called = True
+        self.last_explain_sql = sql
+        return pd.DataFrame(
+            [
+                {
+                    "id": 1,
+                    "select_type": "SIMPLE",
+                    "table": "users",
+                    "type": "ALL",
+                    "possible_keys": "idx_users_name",
+                    "key": None,
+                    "rows": 123,
+                    "Extra": "Using where",
+                }
+            ]
+        )
 
     def get_table_indexes(self, db_name: str | None, table_name: str) -> list[dict]:
         self.index_metadata_called = True
@@ -116,4 +136,27 @@ class TestListIndexes:
         assert "describe " not in lowered
         assert "information_schema" not in lowered
         assert "sql" not in lowered
+
+
+class TestExplainSql:
+    def test_explain_sql_returns_summary_without_sql_text(self):
+        fake_db = FakeDB()
+        svc = make_service(fake_db)
+
+        output = svc.execute(
+            "explain_sql",
+            {"sql": "SELECT * FROM users WHERE name = 'a'", "purpose": "检查是否走索引"},
+        )
+
+        assert fake_db.explain_called is True
+        # 摘要应该包含关键字段
+        assert "执行计划摘要" in output
+        assert "type=" in output
+        assert "possible_keys=" in output
+        assert "rows=" in output
+        # 应提示可能全表扫描（type=ALL）
+        assert "全表扫描" in output
+        # 不应回显 SQL 原文
+        lowered = output.lower()
+        assert "select * from users" not in lowered
 

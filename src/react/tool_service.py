@@ -301,12 +301,12 @@ class MVPToolService:
         # 这里只做摘要，不打印 SQL 文本
         summary_lines = ["执行计划摘要："]
         for idx, row in df.iterrows():
-            # 为了安全使用 get，避免列缺失导致异常
-            row_type = row.get("type") if isinstance(row, dict) else getattr(row, "type", None)
-            key = row.get("key") if isinstance(row, dict) else getattr(row, "key", None)
-            possible_keys = row.get("possible_keys") if isinstance(row, dict) else getattr(row, "possible_keys", None)
-            rows_val = row.get("rows") if isinstance(row, dict) else getattr(row, "rows", None)
-            extra = row.get("Extra") if isinstance(row, dict) else getattr(row, "Extra", getattr(row, "extra", None))
+            # iterrows() 返回的是 pandas.Series；用 .get 读取列更稳健
+            row_type = row.get("type")
+            key = row.get("key")
+            possible_keys = row.get("possible_keys")
+            rows_val = row.get("rows")
+            extra = row.get("Extra") if "Extra" in row else row.get("extra")
 
             parts = []
             if row_type:
