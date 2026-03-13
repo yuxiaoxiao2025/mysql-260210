@@ -468,6 +468,38 @@ class MVPToolService:
         result = install_skill(spec, global_install=global_install)
         return json.dumps(result.to_dict(), ensure_ascii=False, indent=2)
 
+    def _tool_list_capabilities(self) -> str:
+        """汇总当前能力，用于回答“你可以干什么”类问题。"""
+        from src.react.tools import MVP_TOOLS
+
+        tool_lines = []
+        for t in MVP_TOOLS:
+            fn = (t or {}).get("function") or {}
+            name = fn.get("name") or ""
+            desc = fn.get("description") or ""
+            if name:
+                tool_lines.append(f"- {name}: {desc}")
+
+        op_count = 0
+        try:
+            ops = self.knowledge.get_all_operations() or {}
+            op_count = len(ops)
+        except Exception:
+            op_count = 0
+
+        return "\n".join(
+            [
+                "当前能力概览：",
+                "",
+                "可用工具：",
+                *tool_lines,
+                "",
+                f"预定义 operations 数量：{op_count}",
+                "",
+                "提示：当能力不足时，可以使用 find_skills / install_skill 扩展能力。",
+            ]
+        )
+
     def confirm_and_execute_sql(self, sql: str) -> str:
         """确认后执行SQL
 

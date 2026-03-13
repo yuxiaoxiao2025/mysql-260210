@@ -210,6 +210,18 @@ MVP_TOOLS = [
             }
         }
     }
+    ,
+    {
+        "type": "function",
+        "function": {
+            "name": "list_capabilities",
+            "description": "汇总当前可用工具、预定义操作与 skills 状态，便于回答“你可以干什么”。",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    }
 ]
 
 SYSTEM_PROMPT = """你是通用 MySQL 助手。
@@ -237,6 +249,12 @@ SYSTEM_PROMPT = """你是通用 MySQL 助手。
 3. 在确认字段名与业务含义无误后编写 SQL
 4. 执行查询或操作
 5. 用简洁的中文返回结果
+
+## 策略建议（软规则）
+
+- 默认**不展示 SQL**，优先用自然语言解释结论与数据要点；只有在用户明确要求时才展示 SQL。
+- 当需要理解表结构、索引或性能时，优先使用结构类工具（`describe_table`/`list_indexes`/`explain_sql`）辅助判断，再决定是否需要执行查询。
+- 当你发现当前工具不足以完成任务时，可以先调用 `find_skills` 搜索可用扩展，必要时再调用 `install_skill` 安装后继续。
 
 ## 重要提醒
 
