@@ -62,7 +62,7 @@ class TestChatModeIntegration:
         # Mock KnowledgeAgent 返回 generator
         def mock_generator():
             yield {"type": "thinking", "content": "思考中..."}
-            yield {"type": "content", "content": "我是智能停车数据库助手，可以帮助你查询和管理车辆信息。"}
+            yield {"type": "content", "content": "我是通用 MySQL 助手，可以帮助你查询数据、理解表结构并生成 SQL。"}
 
         mock_knowledge.run.return_value = AgentResult(
             success=True,
@@ -90,6 +90,10 @@ class TestChatModeIntegration:
         content_chunks = [c for c in chunks if c.get("type") == "content"]
         assert len(content_chunks) > 0
         assert content_chunks[0]["content"] != ""
+        # 能力类问法不应出现停车领域硬编码
+        assert "停车" not in content_chunks[0]["content"]
+        assert "智能停车" not in content_chunks[0]["content"]
+        assert "parking" not in content_chunks[0]["content"].lower()
 
     def test_chat_handles_knowledge_agent_failure(self, orchestrator_for_chat):
         """chat 模式在 KnowledgeAgent 失败时应返回有意义的错误消息"""

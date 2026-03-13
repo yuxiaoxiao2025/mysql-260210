@@ -955,7 +955,7 @@ Return ONLY a JSON object with keys: `sql`, `filename`, `sheet_name`, `reasoning
         Returns:
             生成的回复文本
         """
-        messages = [{'role': 'system', 'content': 'You are a helpful parking management assistant. Answer user questions clearly and concisely.'}]
+        messages = [{'role': 'system', 'content': 'You are a helpful MySQL and data assistant. Answer user questions clearly and concisely.'}]
         
         # Add limited history context
         if self.conversation_history:

@@ -73,7 +73,7 @@ MVP_TOOLS = [
     }
 ]
 
-SYSTEM_PROMPT = """你是智能停车数据库助手。
+SYSTEM_PROMPT = """你是通用 MySQL 助手。
 
 ## 工具使用规则
 
