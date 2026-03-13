@@ -118,6 +118,31 @@ python main.py
 [MySQL/AI] > help plate_distribute
 ```
 
+### 索引治理命令
+
+```bash
+# 默认：跳过空表
+[MySQL/AI] > index schema --env dev
+
+# 治理模式：先清理幽灵表，再执行索引
+[MySQL/AI] > index schema --env dev --prune
+
+# 包含空表：关闭默认空表跳过
+[MySQL/AI] > index schema --env dev --include-empty
+```
+
+参数说明：
+
+- `--prune`：索引前先删除向量库中已不存在于 MySQL 的幽灵表及其字段向量
+- `--include-empty`：关闭“跳过空表”默认策略，将空表也纳入索引
+- 默认行为：不传 `--include-empty` 时自动跳过空表
+
+回滚方案：
+
+- 索引图谱写入 `data/<env>/table_graph.json` 前会自动生成备份到 `data/<env>/backups/`
+- 如需回滚，可将治理前备份文件恢复为 `table_graph.json`，然后重启服务或重新加载检索组件
+- 建议在执行 `index schema --prune` 前额外执行一次人工备份
+
 ### 对话模式
 
 系统支持多种对话模式：

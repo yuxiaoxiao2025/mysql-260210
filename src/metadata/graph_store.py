@@ -493,21 +493,92 @@ class GraphStore:
         """
         return self.field_collection.count()
 
-    def delete_table(self, table_name: str) -> None:
+    def get_all_table_ids(self, namespace: Optional[str] = None) -> List[str]:
+        where_filter = {"namespace": namespace} if namespace is not None else None
+        try:
+            results = self.table_collection.get(where=where_filter, include=[])
+            ids = results.get("ids") or []
+            return [item for item in ids if isinstance(item, str) and item]
+        except Exception as e:
+            logger.error(f"Failed to get table ids: {e}")
+            raise
+
+    def delete_tables_batch(self, table_ids: List[str]) -> int:
+        normalized_table_ids = self._normalize_ids(table_ids)
+        if not normalized_table_ids:
+            return 0
+
+        try:
+            self.table_collection.delete(ids=normalized_table_ids)
+            logger.info(f"Deleted {len(normalized_table_ids)} table vectors in batch")
+            return len(normalized_table_ids)
+        except Exception as e:
+            logger.error(f"Failed to delete table vectors in batch: {e}")
+            raise
+
+    def delete_tables_with_fields_batch(self, table_ids: List[str]) -> Dict[str, int]:
+        normalized_table_ids = self._normalize_ids(table_ids)
+        if not normalized_table_ids:
+            return {"tables_deleted": 0, "fields_deleted": 0}
+
+        tables_deleted = self.delete_tables_batch(normalized_table_ids)
+        field_ids_to_delete: List[str] = []
+
+        for table_id in normalized_table_ids:
+            namespace, table_name = self._parse_table_id(table_id)
+            field_ids_to_delete.extend(
+                self._get_field_ids_for_table(table_name=table_name, namespace=namespace)
+            )
+
+        normalized_field_ids = self._normalize_ids(field_ids_to_delete)
+        if normalized_field_ids:
+            self.field_collection.delete(ids=normalized_field_ids)
+
+        logger.info(
+            f"Deleted tables+fields in batch: "
+            f"tables={tables_deleted}, fields={len(normalized_field_ids)}"
+        )
+        return {
+            "tables_deleted": tables_deleted,
+            "fields_deleted": len(normalized_field_ids),
+        }
+
+    def delete_table(
+        self,
+        table_name: str,
+        namespace: Optional[str] = None,
+        delete_fields: bool = True
+    ) -> None:
         """
         Delete a table vector from the collection.
 
         Args:
             table_name: Name of the table to delete.
         """
+        normalized_table_name = table_name.strip() if table_name else ""
+        if not normalized_table_name:
+            raise ValueError("table_name cannot be empty")
+
+        resolved_namespace = namespace.strip() if namespace else ""
+        table_id = self._build_table_id(normalized_table_name, resolved_namespace)
         try:
-            self.table_collection.delete(ids=[table_name])
-            logger.info(f"Deleted table vector: {table_name}")
+            self.delete_tables_batch([table_id])
+            if delete_fields:
+                self.delete_table_fields(
+                    table_name=normalized_table_name,
+                    namespace=resolved_namespace
+                )
+            logger.info(f"Deleted table vector: {table_id}")
         except Exception as e:
-            logger.error(f"Failed to delete table vector {table_name}: {e}")
+            logger.error(f"Failed to delete table vector {table_id}: {e}")
             raise
 
-    def delete_field(self, table_name: str, column_name: str) -> None:
+    def delete_field(
+        self,
+        table_name: str,
+        column_name: str,
+        namespace: Optional[str] = None
+    ) -> None:
         """
         Delete a field vector from the collection.
 
@@ -515,7 +586,19 @@ class GraphStore:
             table_name: Name of the table containing the field.
             column_name: Name of the column to delete.
         """
-        field_id = f"{table_name}.{column_name}"
+        normalized_table_name = table_name.strip() if table_name else ""
+        normalized_column_name = column_name.strip() if column_name else ""
+        if not normalized_table_name:
+            raise ValueError("table_name cannot be empty")
+        if not normalized_column_name:
+            raise ValueError("column_name cannot be empty")
+
+        resolved_namespace = namespace.strip() if namespace else ""
+        field_id = self._build_field_id(
+            table_name=normalized_table_name,
+            column_name=normalized_column_name,
+            namespace=resolved_namespace
+        )
         try:
             self.field_collection.delete(ids=[field_id])
             logger.info(f"Deleted field vector: {field_id}")
@@ -523,29 +606,40 @@ class GraphStore:
             logger.error(f"Failed to delete field vector {field_id}: {e}")
             raise
 
-    def delete_table_fields(self, table_name: str) -> None:
+    def delete_table_fields(
+        self,
+        table_name: str,
+        namespace: Optional[str] = None
+    ) -> None:
         """
         Delete all field vectors for a table.
 
         Args:
             table_name: Name of the table whose fields should be deleted.
         """
-        try:
-            # Query all fields for this table
-            results = self.field_collection.get(
-                where={"table_name": table_name}
-            )
+        normalized_table_name = table_name.strip() if table_name else ""
+        if not normalized_table_name:
+            raise ValueError("table_name cannot be empty")
 
-            if results["ids"]:
-                self.field_collection.delete(ids=results["ids"])
+        resolved_namespace = namespace.strip() if namespace is not None else None
+        try:
+            field_ids = self._get_field_ids_for_table(
+                table_name=normalized_table_name,
+                namespace=resolved_namespace
+            )
+            if field_ids:
+                self.field_collection.delete(ids=field_ids)
                 logger.info(
-                    f"Deleted {len(results['ids'])} field vectors for table {table_name}"
+                    f"Deleted {len(field_ids)} field vectors for table "
+                    f"{normalized_table_name}"
                 )
             else:
-                logger.info(f"No field vectors found for table {table_name}")
+                logger.info(f"No field vectors found for table {normalized_table_name}")
 
         except Exception as e:
-            logger.error(f"Failed to delete field vectors for table {table_name}: {e}")
+            logger.error(
+                f"Failed to delete field vectors for table {normalized_table_name}: {e}"
+            )
             raise
 
     def get_stats(self) -> Dict[str, Any]:
@@ -638,3 +732,42 @@ class GraphStore:
         if field_id.startswith(prefix):
             return f"{target_ns}.{field_id[len(prefix):]}"
         return field_id
+
+    def _get_field_ids_for_table(
+        self,
+        table_name: str,
+        namespace: Optional[str] = None
+    ) -> List[str]:
+        where_filter: Dict[str, Any]
+        if namespace is None:
+            where_filter = {"table_name": table_name}
+        else:
+            where_filter = {
+                "$and": [
+                    {"table_name": table_name},
+                    {"namespace": namespace},
+                ]
+            }
+
+        results = self.field_collection.get(where=where_filter, include=[])
+        ids = results.get("ids") or []
+        return [item for item in ids if isinstance(item, str) and item]
+
+    def _normalize_ids(self, ids: List[str]) -> List[str]:
+        normalized = []
+        seen = set()
+        for item in ids:
+            if not isinstance(item, str):
+                continue
+            item = item.strip()
+            if not item or item in seen:
+                continue
+            seen.add(item)
+            normalized.append(item)
+        return normalized
+
+    def _parse_table_id(self, table_id: str) -> tuple[Optional[str], str]:
+        parts = table_id.split(".", 1)
+        if len(parts) == 2:
+            return parts[0], parts[1]
+        return None, parts[0]

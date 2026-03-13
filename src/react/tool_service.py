@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 NEED_CONFIRM_MARKER = "__NEED_CONFIRM__"
 
 # Token 限制配置
-MAX_TABLES = 10
-MAX_FIELDS = 20
+MAX_TABLES = 3
+MAX_FIELDS = 10
 
 
 class MVPToolService:

@@ -25,6 +25,106 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+
+def _parse_index_schema_options(tokens):
+    env = "dev"
+    batch_size = 10
+    force = False
+    prune = False
+    include_empty = False
+
+    idx = 2
+    while idx < len(tokens):
+        token = tokens[idx]
+        if token == "--env" and idx + 1 < len(tokens):
+            env = tokens[idx + 1]
+            idx += 2
+            continue
+        if token == "--batch-size" and idx + 1 < len(tokens):
+            try:
+                batch_size = int(tokens[idx + 1])
+            except ValueError:
+                return None, "[ERR] --batch-size 必须是整数"
+            idx += 2
+            continue
+        if token == "--force":
+            force = True
+            idx += 1
+            continue
+        if token == "--prune":
+            prune = True
+            idx += 1
+            continue
+        if token == "--include-empty":
+            include_empty = True
+            idx += 1
+            continue
+        return None, f"[ERR] 未识别的参数: {token}"
+
+    if env not in ("dev", "prod"):
+        return None, "[ERR] --env 仅支持 dev 或 prod"
+
+    return {
+        "env": env,
+        "batch_size": batch_size,
+        "force": force,
+        "prune": prune,
+        "include_empty": include_empty,
+    }, None
+
+
+def _handle_index_schema_command(user_input, db):
+    if not user_input.lower().startswith("index schema"):
+        return False
+
+    tokens = shlex.split(user_input)
+    options, error = _parse_index_schema_options(tokens)
+    if error:
+        print(error)
+        return True
+
+    from src.metadata.schema_indexer import SchemaIndexer
+    from src.metadata.graph_store import GraphStore
+
+    print("\n开始索引数据库表...")
+    print(
+        f"环境: {options['env']}, 批量大小: {options['batch_size']}, "
+        f"强制重建: {options['force']}, 清理幽灵表: {options['prune']}, "
+        f"包含空表: {options['include_empty']}"
+    )
+
+    indexer = SchemaIndexer(db_manager=db, env=options["env"])
+    if options["force"]:
+        print("清除现有索引...")
+        indexer.clear_progress()
+        GraphStore(env=options["env"]).clear_all()
+        print("[OK] 清除完成")
+
+    try:
+        result = indexer.index_all_databases(
+            batch_size=options["batch_size"],
+            skip_empty_tables=not options["include_empty"],
+            prune=options["prune"],
+        )
+    except Exception as e:
+        print(f"[ERR] 索引失败: {e}")
+        return True
+
+    print("\n" + "=" * 60)
+    print("索引完成")
+    print("=" * 60)
+    print(f"状态: {'成功' if result.success else '部分失败'}")
+    print(f"总表数: {result.total_tables}")
+    print(f"已索引: {result.indexed_tables}")
+    print(f"耗时: {result.elapsed_seconds:.2f} 秒")
+
+    if result.failed_tables:
+        print(f"\n失败的表 ({len(result.failed_tables)}):")
+        for table in result.failed_tables:
+            print(f"  - {table}")
+
+    return True
+
 def _configure_stdio_encoding():
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -75,7 +175,7 @@ def print_welcome(agent_mode=False):
     print("  desc <table>      - 查看表结构")
     print("  help [operation]  - 查看帮助或操作详情")
     print("  operations        - 列出所有可用操作")
-    print("  index schema      - 索引所有数据库的表结构")
+    print("  index schema      - 索引所有数据库表结构（支持 --prune/--include-empty）")
     print("  chat              - 进入智能对话模式")
     print("  react             - 进入 ReACT 对话模式（新架构，推荐）")
     print("  exit / quit       - 退出程序")
@@ -482,7 +582,9 @@ def main():
                 print("\n📖 详细帮助：")
                 print("  使用 'operations' 查看所有可用操作")
                 print("  使用 'help <操作名>' 查看操作详情，如 'help plate_distribute'")
-                print("  使用 'index schema [--env dev|prod] [--batch-size N] [--force]' 执行索引")
+                print("  使用 'index schema [--env dev|prod] [--batch-size N] [--force] [--prune] [--include-empty]' 执行索引")
+                print("    默认会跳过空表；加 --include-empty 可包含空表")
+                print("    加 --prune 会先清理索引中的幽灵表再执行索引")
                 print("  使用 'chat' 进入智能对话模式，支持自然语言交互和概念学习")
                 continue
 
@@ -498,72 +600,8 @@ def main():
                 print(f"\n{ops_text}")
                 continue
 
-            # 新增：索引命令
-            if user_input.lower().startswith('index schema'):
-                tokens = shlex.split(user_input)
-                env = "dev"
-                batch_size = 10
-                force = False
-
-                idx = 2
-                while idx < len(tokens):
-                    token = tokens[idx]
-                    if token == "--env" and idx + 1 < len(tokens):
-                        env = tokens[idx + 1]
-                        idx += 2
-                        continue
-                    if token == "--batch-size" and idx + 1 < len(tokens):
-                        try:
-                            batch_size = int(tokens[idx + 1])
-                        except ValueError:
-                            print("[ERR] --batch-size 必须是整数")
-                            batch_size = 10
-                        idx += 2
-                        continue
-                    if token == "--force":
-                        force = True
-                        idx += 1
-                        continue
-                    print(f"[ERR] 未识别的参数: {token}")
-                    break
-                else:
-                    if env not in ("dev", "prod"):
-                        print("[ERR] --env 仅支持 dev 或 prod")
-                        continue
-
-                    from src.metadata.schema_indexer import SchemaIndexer
-                    from src.metadata.graph_store import GraphStore
-
-                    print("\n开始索引数据库表...")
-                    print(f"环境: {env}, 批量大小: {batch_size}, 强制重建: {force}")
-
-                    indexer = SchemaIndexer(db_manager=db, env=env)
-                    if force:
-                        print("清除现有索引...")
-                        indexer.clear_progress()
-                        GraphStore(env=env).clear_all()
-                        print("[OK] 清除完成")
-
-                    try:
-                        result = indexer.index_all_databases(batch_size=batch_size)
-                    except Exception as e:
-                        print(f"[ERR] 索引失败: {e}")
-                        continue
-
-                    print("\n" + "=" * 60)
-                    print("索引完成")
-                    print("=" * 60)
-                    print(f"状态: {'成功' if result.success else '部分失败'}")
-                    print(f"总表数: {result.total_tables}")
-                    print(f"已索引: {result.indexed_tables}")
-                    print(f"耗时: {result.elapsed_seconds:.2f} 秒")
-
-                    if result.failed_tables:
-                        print(f"\n失败的表 ({len(result.failed_tables)}):")
-                        for table in result.failed_tables:
-                            print(f"  - {table}")
-
-                    continue
+            if _handle_index_schema_command(user_input, db):
+                continue
 
             # ========== Agent Mode 处理 ==========
 

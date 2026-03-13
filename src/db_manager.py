@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine, text, inspect
 import pandas as pd
 import os
+import re
 from dotenv import load_dotenv
 from sqlalchemy.pool import QueuePool
 from typing import Optional, Dict, List, Any, Tuple
@@ -20,6 +21,7 @@ class DatabaseManager:
         "performance_schema",
         "sys"
     ])
+    _VALID_IDENTIFIER = re.compile(r"^[A-Za-z0-9_]+$")
 
     def __init__(self, specific_db: Optional[str] | object = _DEFAULT_DB):
         """
@@ -405,6 +407,35 @@ class DatabaseManager:
                     "comment": row[2] or ""
                 })
             return columns
+
+    def is_table_empty(self, db_name: str, table_name: str) -> bool:
+        if not self._VALID_IDENTIFIER.match(db_name) or not self._VALID_IDENTIFIER.match(table_name):
+            raise ValueError("Invalid database or table name")
+
+        table_rows_sql = """
+            SELECT TABLE_ROWS
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = :db_name
+                AND TABLE_NAME = :table_name
+                AND TABLE_TYPE = 'BASE TABLE'
+        """
+        fallback_sql = f"SELECT 1 FROM `{db_name}`.`{table_name}` LIMIT 1"
+
+        try:
+            with self.get_connection() as conn:
+                table_rows_result = conn.execute(
+                    text(table_rows_sql),
+                    {"db_name": db_name, "table_name": table_name}
+                )
+                table_rows_row = table_rows_result.fetchone()
+
+                if table_rows_row and table_rows_row[0] is not None and table_rows_row[0] > 0:
+                    return False
+
+                fallback_result = conn.execute(text(fallback_sql))
+                return fallback_result.fetchone() is None
+        except Exception:
+            return False
 
     def check_tables_structure_match(self, db1: str, db2: str) -> bool:
         """

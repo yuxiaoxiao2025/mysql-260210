@@ -180,7 +180,12 @@ class SchemaIndexer:
             elapsed_seconds=elapsed,
         )
 
-    def index_all_tables(self, batch_size: int = 10) -> IndexResult:
+    def index_all_tables(
+        self,
+        batch_size: int = 10,
+        skip_empty_tables: bool = True,
+        prune: bool = False,
+    ) -> IndexResult:
         """
         Perform full indexing of all tables in the database.
 
@@ -195,6 +200,8 @@ class SchemaIndexer:
 
         Args:
             batch_size: Number of tables to process per batch (default: 10).
+            skip_empty_tables: Whether to skip empty tables before indexing.
+            prune: Whether to prune invalid indexed entries before indexing.
 
         Returns:
             IndexResult containing success status, statistics, and any failures.
@@ -205,7 +212,10 @@ class SchemaIndexer:
             >>> print(f"Indexed {result.indexed_tables}/{result.total_tables} tables")
         """
         start_time = time.time()
-        logger.info(f"Starting full schema indexing with batch_size={batch_size}")
+        logger.info(
+            f"Starting full schema indexing with batch_size={batch_size}, "
+            f"skip_empty_tables={skip_empty_tables}, prune={prune}"
+        )
 
         current_db = self._get_current_database_name()
         if not current_db:
@@ -240,6 +250,13 @@ class SchemaIndexer:
 
         logger.info(f"Found {len(all_tables)} tables to index")
 
+        prune_summary = {"tables_deleted": 0, "fields_deleted": 0}
+        if prune:
+            prune_summary = self.prune_invalid_entries(
+                db_name=current_db,
+                prune_empty_tables=skip_empty_tables,
+            )
+
         # Load previous progress for checkpoint/resume
         progress = self._load_progress()
         indexed_tables = set(progress.statistics.get("indexed_tables", []))
@@ -247,9 +264,19 @@ class SchemaIndexer:
         # Determine which tables need indexing
         tables_to_index = [t for t in all_tables if t not in indexed_tables]
         skipped_count = len(all_tables) - len(tables_to_index)
+        skipped_empty_tables: List[str] = []
+
+        if skip_empty_tables and tables_to_index:
+            tables_to_index, skipped_empty_tables = self._filter_empty_tables(
+                current_db, tables_to_index
+            )
 
         if skipped_count > 0:
             logger.info(f"Skipping {skipped_count} already indexed tables")
+        if skipped_empty_tables:
+            logger.info(
+                f"Skipped {len(skipped_empty_tables)} empty tables during indexing"
+            )
 
         # Initialize progress tracking
         progress.status = "in_progress"
@@ -318,6 +345,14 @@ class SchemaIndexer:
         logger.info(
             f"Schema indexing complete: {total_indexed}/{len(all_tables)} tables "
             f"in {elapsed_seconds:.2f}s"
+        )
+        logger.info(
+            "Indexing summary: "
+            f"indexed={total_indexed}, "
+            f"already_indexed_skipped={skipped_count}, "
+            f"empty_skipped={len(skipped_empty_tables)}, "
+            f"pruned_tables={prune_summary.get('tables_deleted', 0)}, "
+            f"pruned_fields={prune_summary.get('fields_deleted', 0)}"
         )
 
         return IndexResult(
@@ -837,7 +872,9 @@ class SchemaIndexer:
         self,
         db_name: str,
         batch_size: int = 10,
-        knowledge_graph: Optional[KnowledgeGraph] = None
+        knowledge_graph: Optional[KnowledgeGraph] = None,
+        skip_empty_tables: bool = True,
+        prune: bool = False,
     ) -> IndexResult:
         """
         Index all tables in a specific database.
@@ -846,6 +883,8 @@ class SchemaIndexer:
             db_name: Database name to index.
             batch_size: Number of tables per batch.
             knowledge_graph: Optional existing knowledge graph to extend.
+            skip_empty_tables: Whether to skip empty tables before indexing.
+            prune: Whether to prune invalid indexed entries before indexing.
 
         Returns:
             IndexResult for the database indexing.
@@ -872,11 +911,25 @@ class SchemaIndexer:
                 elapsed_seconds=time.time() - start_time,
             )
 
+        prune_summary = {"tables_deleted": 0, "fields_deleted": 0}
+        if prune:
+            prune_summary = self.prune_invalid_entries(
+                db_name=db_name,
+                prune_empty_tables=skip_empty_tables,
+            )
+
+        tables_to_index = all_tables
+        skipped_empty_tables: List[str] = []
+        if skip_empty_tables:
+            tables_to_index, skipped_empty_tables = self._filter_empty_tables(
+                db_name, all_tables
+            )
+
         failed_tables: List[str] = []
         total_indexed = 0
 
-        for i in range(0, len(all_tables), batch_size):
-            batch = all_tables[i : i + batch_size]
+        for i in range(0, len(tables_to_index), batch_size):
+            batch = tables_to_index[i : i + batch_size]
             try:
                 batch_result = self._index_batch(db_name, batch, graph)
                 total_indexed += batch_result["success_count"]
@@ -888,6 +941,14 @@ class SchemaIndexer:
         if knowledge_graph is None:
             self.graph_store.save_graph(graph)
 
+        logger.info(
+            "Indexing summary for database "
+            f"{db_name}: indexed={total_indexed}, "
+            f"empty_skipped={len(skipped_empty_tables)}, "
+            f"pruned_tables={prune_summary.get('tables_deleted', 0)}, "
+            f"pruned_fields={prune_summary.get('fields_deleted', 0)}"
+        )
+
         return IndexResult(
             success=len(failed_tables) == 0,
             total_tables=len(all_tables),
@@ -896,7 +957,12 @@ class SchemaIndexer:
             elapsed_seconds=time.time() - start_time,
         )
 
-    def index_all_databases(self, batch_size: int = 10) -> IndexResult:
+    def index_all_databases(
+        self,
+        batch_size: int = 10,
+        skip_empty_tables: bool = True,
+        prune: bool = False,
+    ) -> IndexResult:
         """
         Index all databases with template cloning for park instances.
         """
@@ -924,7 +990,9 @@ class SchemaIndexer:
             self.index_database(
                 db_name,
                 batch_size=batch_size,
-                knowledge_graph=knowledge_graph
+                knowledge_graph=knowledge_graph,
+                skip_empty_tables=skip_empty_tables,
+                prune=prune,
             )
             knowledge_graph.database_classification[db_name] = DatabaseType.PRIMARY.value
 
@@ -933,7 +1001,9 @@ class SchemaIndexer:
             self.index_database(
                 template_db,
                 batch_size=batch_size,
-                knowledge_graph=knowledge_graph
+                knowledge_graph=knowledge_graph,
+                skip_empty_tables=skip_empty_tables,
+                prune=prune,
             )
             knowledge_graph.database_classification[template_db] = DatabaseType.PARK_TEMPLATE.value
 
@@ -948,7 +1018,9 @@ class SchemaIndexer:
                 self.index_database(
                     instance_db,
                     batch_size=batch_size,
-                    knowledge_graph=knowledge_graph
+                    knowledge_graph=knowledge_graph,
+                    skip_empty_tables=skip_empty_tables,
+                    prune=prune,
                 )
                 knowledge_graph.database_classification[instance_db] = DatabaseType.PARK_INSTANCE.value
 
@@ -976,6 +1048,85 @@ class SchemaIndexer:
             if db not in template_dbs and db not in park_instances
         ]
         return primary_dbs, template_dbs, park_instances
+
+    def _filter_empty_tables(
+        self, db_name: str, table_names: List[str]
+    ) -> tuple[List[str], List[str]]:
+        non_empty_tables: List[str] = []
+        skipped_empty_tables: List[str] = []
+
+        for table_name in table_names:
+            if self.db_manager.is_table_empty(db_name, table_name):
+                skipped_empty_tables.append(table_name)
+                logger.info(f"Skipping empty table: {db_name}.{table_name}")
+                continue
+            non_empty_tables.append(table_name)
+
+        return non_empty_tables, skipped_empty_tables
+
+    def prune_invalid_entries(
+        self,
+        db_name: Optional[str] = None,
+        prune_empty_tables: bool = False,
+    ) -> Dict[str, Any]:
+        start_time = time.time()
+        target_db = db_name or self._get_current_database_name()
+        if not target_db:
+            logger.warning("Skip prune invalid entries because active database is unavailable")
+            return {
+                "success": False,
+                "database": "",
+                "scanned_table_ids": 0,
+                "invalid_table_ids": 0,
+                "empty_table_ids": 0,
+                "tables_deleted": 0,
+                "fields_deleted": 0,
+                "elapsed_seconds": time.time() - start_time,
+            }
+
+        all_tables = self.db_manager.get_tables_in_database(target_db)
+        valid_table_names = set(all_tables)
+        indexed_table_ids = self.graph_store.get_all_table_ids(namespace=target_db)
+
+        empty_table_names = set()
+        if prune_empty_tables:
+            for table_name in valid_table_names:
+                if self.db_manager.is_table_empty(target_db, table_name):
+                    empty_table_names.add(table_name)
+
+        invalid_table_ids = []
+        for table_id in indexed_table_ids:
+            indexed_table_name = table_id.split(".", 1)[1] if "." in table_id else table_id
+            if indexed_table_name not in valid_table_names:
+                invalid_table_ids.append(table_id)
+                continue
+            if indexed_table_name in empty_table_names:
+                invalid_table_ids.append(table_id)
+
+        delete_result = self.graph_store.delete_tables_with_fields_batch(invalid_table_ids)
+        elapsed_seconds = time.time() - start_time
+
+        summary = {
+            "success": True,
+            "database": target_db,
+            "scanned_table_ids": len(indexed_table_ids),
+            "invalid_table_ids": len(invalid_table_ids),
+            "empty_table_ids": len(empty_table_names),
+            "tables_deleted": delete_result.get("tables_deleted", 0),
+            "fields_deleted": delete_result.get("fields_deleted", 0),
+            "elapsed_seconds": elapsed_seconds,
+        }
+
+        logger.info(
+            "Prune summary for database "
+            f"{target_db}: scanned={summary['scanned_table_ids']}, "
+            f"invalid={summary['invalid_table_ids']}, "
+            f"empty={summary['empty_table_ids']}, "
+            f"tables_deleted={summary['tables_deleted']}, "
+            f"fields_deleted={summary['fields_deleted']}, "
+            f"elapsed={elapsed_seconds:.2f}s"
+        )
+        return summary
 
     def _get_current_database_name(self) -> Optional[str]:
         try:
