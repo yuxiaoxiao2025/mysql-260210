@@ -457,31 +457,16 @@ class MVPToolService:
             return f"操作失败：{result.error}"
 
     def _tool_find_skills(self, query: str) -> str:
-        """查找可用 skill 的占位实现。
+        from src.skills.skills_cli import find_skills
 
-        真正的 npx skills 集成在后续 Task 中完成，这里先提供安全的降级文案，避免工具调用报错。
-        """
-        return (
-            "skills 查找功能暂未完整接入命令行。"
-            "当前版本不会主动执行任何外部命令。"
-            "你可以在本地终端中手动运行类似 `npx skills find \""
-            + query
-            + "\"` 来查看可安装的 skill。"
-        )
+        result = find_skills(query)
+        return json.dumps(result.to_dict(), ensure_ascii=False, indent=2)
 
     def _tool_install_skill(self, spec: str, global_install: bool = True) -> str:
-        """安装 skill 的占位实现。
+        from src.skills.skills_cli import install_skill
 
-        后续 Task 将通过独立的 skills_cli 模块集成 npx skills，这里只给出建议命令。
-        """
-        base_cmd = f"npx skills add {spec}"
-        if global_install:
-            base_cmd += " -g -y"
-        return (
-            "当前环境未直接集成自动安装 skill 的终端命令，"
-            "为安全起见不会在对话中执行安装。"
-            f"你可以在本地终端中手动执行：{base_cmd}"
-        )
+        result = install_skill(spec, global_install=global_install)
+        return json.dumps(result.to_dict(), ensure_ascii=False, indent=2)
 
     def confirm_and_execute_sql(self, sql: str) -> str:
         """确认后执行SQL
