@@ -141,6 +141,72 @@ class DatabaseManager:
             })
         return schema_info
 
+    def get_table_indexes(self, db_name: Optional[str], table_name: str) -> List[Dict[str, Any]]:
+        """
+        从 information_schema.statistics 中获取指定表的索引元数据。
+
+        Args:
+            db_name: 数据库名；为 None 时使用当前连接数据库 (DATABASE())
+            table_name: 表名
+
+        Returns:
+            索引行列表，每行包含 schema/table/index/列顺序/唯一性/类型等字段
+        """
+        if not self._VALID_IDENTIFIER.match(table_name):
+            raise ValueError("Invalid table name")
+        if db_name is not None and not self._VALID_IDENTIFIER.match(db_name):
+            raise ValueError("Invalid database name")
+
+        if db_name is None:
+            sql = """
+                SELECT
+                    TABLE_SCHEMA,
+                    TABLE_NAME,
+                    INDEX_NAME,
+                    NON_UNIQUE,
+                    SEQ_IN_INDEX,
+                    COLUMN_NAME,
+                    INDEX_TYPE
+                FROM information_schema.STATISTICS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = :table_name
+                ORDER BY INDEX_NAME, SEQ_IN_INDEX
+            """
+            params = {"table_name": table_name}
+        else:
+            sql = """
+                SELECT
+                    TABLE_SCHEMA,
+                    TABLE_NAME,
+                    INDEX_NAME,
+                    NON_UNIQUE,
+                    SEQ_IN_INDEX,
+                    COLUMN_NAME,
+                    INDEX_TYPE
+                FROM information_schema.STATISTICS
+                WHERE TABLE_SCHEMA = :db_name
+                  AND TABLE_NAME = :table_name
+                ORDER BY INDEX_NAME, SEQ_IN_INDEX
+            """
+            params = {"db_name": db_name, "table_name": table_name}
+
+        with self.get_connection() as conn:
+            result = conn.execute(text(sql), params)
+            rows = []
+            for row in result.fetchall():
+                rows.append(
+                    {
+                        "table_schema": row[0],
+                        "table_name": row[1],
+                        "index_name": row[2],
+                        "non_unique": row[3],
+                        "seq_in_index": row[4],
+                        "column_name": row[5],
+                        "index_type": row[6],
+                    }
+                )
+            return rows
+
     def execute_in_transaction(
         self,
         mutation_sql: str,
@@ -208,6 +274,17 @@ class DatabaseManager:
                 "diff_summary": diff_summary,
                 "committed": committed
             }
+
+    def explain_readonly_sql(self, sql: str) -> pd.DataFrame:
+        """
+        对只读 SQL 执行 EXPLAIN，并以 DataFrame 形式返回执行计划。
+
+        调用方必须保证传入 SQL 已经过只读白名单校验，这里不再重复判断。
+        """
+        explain_sql = f"EXPLAIN {sql}"
+        with self.get_connection() as conn:
+            df = pd.read_sql(text(explain_sql), conn)
+        return df
 
     def execute_multi_step_transaction(
         self,

@@ -64,6 +64,8 @@ class MVPToolService:
             logger.error(f"Tool {tool_name} failed: {e}", exc_info=True)
             return f"工具执行失败：{str(e)}"
 
+    # ==================== 元数据/结构相关工具 ====================
+
     def _tool_search_schema(self, query: str) -> str:
         """搜索表结构，返回候选表及完整字段信息
 
@@ -134,6 +136,227 @@ class MVPToolService:
 
         return "\n".join(lines)
 
+    def _tool_list_tables(self, db_name: Optional[str] = None) -> str:
+        """列出部分表名，帮助模型了解有哪些可用表。
+
+        Args:
+            db_name: 可选，指定数据库名；不提供时使用当前连接数据库
+
+        Returns:
+            str: 表名列表摘要
+        """
+        try:
+            if db_name:
+                # 跨库：通过信息_schema.TABLES 获取，避免切换连接
+                tables = self.db.get_tables_in_database(db_name)
+                prefix = f"数据库 {db_name} 中的表："
+            else:
+                tables = self.db.get_all_tables()
+                prefix = "当前数据库中的表："
+        except Exception as e:
+            return f"获取表列表失败：{str(e)}"
+
+        if not tables:
+            return prefix + "（无表或无法获取）"
+
+        # 限制返回数量，避免输出过长
+        max_tables = 50
+        display = tables[:max_tables]
+        lines = [f"{prefix}（共 {len(tables)} 个，显示前 {len(display)} 个）"]
+        for t in display:
+            lines.append(f"- {t}")
+        if len(tables) > len(display):
+            lines.append(f"... 省略 {len(tables) - len(display)} 个表")
+        return "\n".join(lines)
+
+    def _tool_describe_table(self, table_name: str, db_name: Optional[str] = None) -> str:
+        """查看单表结构信息（字段名、类型、注释）。"""
+        try:
+            if db_name:
+                schema_info = self.db.get_table_schema_cross_db(db_name, table_name)
+                display_name = f"{db_name}.{table_name}"
+            else:
+                schema_info = self.db.get_table_schema(table_name)
+                display_name = table_name
+        except Exception as e:
+            return f"获取表结构失败：{str(e)}"
+
+        if not schema_info:
+            return f"未找到表 {display_name} 的结构信息。"
+
+        lines = [f"表 {display_name} 的字段："]
+        for col in schema_info[:MAX_FIELDS]:
+            col_name = col.get("name", "")
+            col_type = col.get("type", "")
+            col_comment = col.get("comment") or ""
+            if col_comment:
+                lines.append(f"- {col_name} ({col_type}) -- {col_comment}")
+            else:
+                lines.append(f"- {col_name} ({col_type})")
+        if len(schema_info) > MAX_FIELDS:
+            lines.append(f"... 共 {len(schema_info)} 个字段")
+        return "\n".join(lines)
+
+    def _tool_list_indexes(self, table_name: str, db_name: Optional[str] = None) -> str:
+        """查看指定表的索引元数据摘要，不返回任何 SQL 文本。"""
+        try:
+            indexes = self.db.get_table_indexes(db_name, table_name)
+        except Exception as e:
+            return f"获取索引信息失败：{str(e)}"
+
+        if not indexes:
+            full_name = f"{db_name}.{table_name}" if db_name else table_name
+            return f"表 {full_name} 未找到索引信息。"
+
+        # 聚合同一索引的多列信息
+        by_index: Dict[str, Dict[str, Any]] = {}
+        for row in indexes:
+            index_name = row.get("index_name") or row.get("INDEX_NAME")
+            if not index_name:
+                continue
+            key = index_name
+            info = by_index.setdefault(
+                key,
+                {
+                    "index_name": index_name,
+                    "columns": [],
+                    "unique": None,
+                    "index_type": row.get("index_type") or row.get("INDEX_TYPE") or "",
+                },
+            )
+            # 列顺序
+            seq = row.get("seq_in_index") or row.get("SEQ_IN_INDEX") or 0
+            column_name = row.get("column_name") or row.get("COLUMN_NAME") or ""
+            info["columns"].append((int(seq), column_name))
+
+            # 唯一性：non_unique = 0 表示唯一索引
+            non_unique = row.get("non_unique")
+            if non_unique is None:
+                non_unique = row.get("NON_UNIQUE")
+            if non_unique is not None:
+                info["unique"] = (int(non_unique) == 0)
+
+        lines = ["索引摘要："]
+        for idx_name, info in sorted(by_index.items()):
+            cols = sorted(info["columns"], key=lambda x: x[0])
+            col_list = ", ".join(c for _, c in cols if c)
+            unique_flag = info["unique"]
+            if unique_flag is True:
+                unique_str = "唯一索引"
+            elif unique_flag is False:
+                unique_str = "非唯一索引"
+            else:
+                unique_str = "唯一性未知"
+            index_type = info.get("index_type") or ""
+            if index_type:
+                lines.append(
+                    f"- 索引 {idx_name}: 列({col_list})，{unique_str}，类型 {index_type}"
+                )
+            else:
+                lines.append(
+                    f"- 索引 {idx_name}: 列({col_list})，{unique_str}"
+                )
+
+        return "\n".join(lines)
+
+    # ==================== 只读 SQL & 执行计划 ====================
+
+    @staticmethod
+    def _is_readonly_sql(sql: str) -> bool:
+        """判断 SQL 是否在只读白名单内。"""
+        sql_stripped = sql.lstrip()
+        if not sql_stripped:
+            return False
+        prefix = sql_stripped.upper()
+        allowed_prefixes = (
+            "SELECT",
+            "SHOW",
+            "DESC",
+            "DESCRIBE",
+            "EXPLAIN",
+            "WITH",
+        )
+        return prefix.startswith(allowed_prefixes)
+
+    def _reject_non_readonly(self) -> str:
+        return (
+            "该 SQL 不在只读白名单内，已拒绝执行。"
+            "只允许以 SELECT/SHOW/DESC/DESCRIBE/EXPLAIN/WITH 开头的查询，不允许 INSERT/UPDATE/DELETE/ALTER 等变更或 DDL。"
+        )
+
+    def _tool_explain_sql(self, sql: str, purpose: Optional[str] = None) -> str:
+        """对只读 SQL 执行 EXPLAIN，返回执行计划摘要。"""
+        if not self._is_readonly_sql(sql):
+            return self._reject_non_readonly()
+
+        try:
+            df = self.db.explain_readonly_sql(sql)
+        except Exception as e:
+            return f"EXPLAIN 执行失败：{str(e)}"
+
+        if df.empty:
+            return "EXPLAIN 未返回任何执行计划行。"
+
+        # 通常 MySQL EXPLAIN 会返回 type/key/possible_keys/rows/Extra 等列
+        # 这里只做摘要，不打印 SQL 文本
+        summary_lines = ["执行计划摘要："]
+        for idx, row in df.iterrows():
+            # 为了安全使用 get，避免列缺失导致异常
+            row_type = row.get("type") if isinstance(row, dict) else getattr(row, "type", None)
+            key = row.get("key") if isinstance(row, dict) else getattr(row, "key", None)
+            possible_keys = row.get("possible_keys") if isinstance(row, dict) else getattr(row, "possible_keys", None)
+            rows_val = row.get("rows") if isinstance(row, dict) else getattr(row, "rows", None)
+            extra = row.get("Extra") if isinstance(row, dict) else getattr(row, "Extra", getattr(row, "extra", None))
+
+            parts = []
+            if row_type:
+                parts.append(f"type={row_type}")
+            if key:
+                parts.append(f"使用索引 key={key}")
+            elif possible_keys:
+                parts.append(f"可能使用索引 possible_keys={possible_keys}")
+            if rows_val is not None:
+                parts.append(f"预估扫描行数 rows={rows_val}")
+            if extra:
+                parts.append(f"Extra={extra}")
+
+            is_full_scan = (str(row_type).lower() == "all") if row_type else False
+            if is_full_scan:
+                parts.append("⚠️ 可能是全表扫描")
+
+            summary_lines.append(f"- 步骤 {idx}: " + "，".join(parts))
+
+        if purpose:
+            summary_lines.append(f"\n分析目的：{purpose}")
+        return "\n".join(summary_lines)
+
+    def _tool_run_readonly_sql(self, sql: str, purpose: Optional[str] = None) -> str:
+        """在只读白名单下执行 SQL，返回 DataFrame 摘要（行数 + head），不输出 SQL 原文。"""
+        if not self._is_readonly_sql(sql):
+            return self._reject_non_readonly()
+
+        try:
+            df = self.db.execute_query(sql)
+        except Exception as e:
+            return f"只读查询执行失败：{str(e)}"
+
+        total_rows = len(df)
+        if total_rows == 0:
+            base = "只读查询执行成功，但结果为空。"
+            if purpose:
+                return base + f"（目的：{purpose}）"
+            return base
+
+        head_rows = min(20, total_rows)
+        display_df = df.head(head_rows)
+        lines = [f"只读查询返回 {total_rows} 行数据，显示前 {head_rows} 行："]
+        lines.append(display_df.to_string(index=False))
+        if total_rows > head_rows:
+            lines.append(f"... 省略 {total_rows - head_rows} 行")
+        if purpose:
+            lines.append(f"\n查询目的：{purpose}")
+        return "\n".join(lines)
+
     def _tool_execute_sql(self, sql: str, description: str = None) -> str:
         """执行SQL
 
@@ -167,6 +390,8 @@ class MVPToolService:
 
         # 修改操作需要确认
         return f"{NEED_CONFIRM_MARKER}\n操作：{description or '执行SQL'}\nSQL：{sql}"
+
+    # ==================== 业务操作与 skills（占位实现） ====================
 
     def _tool_list_operations(self) -> str:
         """列出可用操作
@@ -230,6 +455,33 @@ class MVPToolService:
             return f"操作成功：{result.summary or '已完成'}"
         else:
             return f"操作失败：{result.error}"
+
+    def _tool_find_skills(self, query: str) -> str:
+        """查找可用 skill 的占位实现。
+
+        真正的 npx skills 集成在后续 Task 中完成，这里先提供安全的降级文案，避免工具调用报错。
+        """
+        return (
+            "skills 查找功能暂未完整接入命令行。"
+            "当前版本不会主动执行任何外部命令。"
+            "你可以在本地终端中手动运行类似 `npx skills find \""
+            + query
+            + "\"` 来查看可安装的 skill。"
+        )
+
+    def _tool_install_skill(self, spec: str, global_install: bool = True) -> str:
+        """安装 skill 的占位实现。
+
+        后续 Task 将通过独立的 skills_cli 模块集成 npx skills，这里只给出建议命令。
+        """
+        base_cmd = f"npx skills add {spec}"
+        if global_install:
+            base_cmd += " -g -y"
+        return (
+            "当前环境未直接集成自动安装 skill 的终端命令，"
+            "为安全起见不会在对话中执行安装。"
+            f"你可以在本地终端中手动执行：{base_cmd}"
+        )
 
     def confirm_and_execute_sql(self, sql: str) -> str:
         """确认后执行SQL
