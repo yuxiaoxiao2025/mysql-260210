@@ -31,6 +31,7 @@ streamlit run src/web/app.py            # Run web UI
 - `DASHSCOPE_API_KEY` - Qwen LLM API key
 - `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` - MySQL
 - `CHROMA_DB_PATH`, `TABLE_GRAPH_PATH` - Storage paths
+- `USE_UNIFIED_REACT` - 是否启用统一 ReACT（`true/false`，默认 `false`）
 
 ## Notes
 - Windows Git Bash: Use `encoding='utf-8'` for file I/O

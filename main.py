@@ -25,6 +25,10 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+def _env_truthy(name: str, default: str = "false") -> bool:
+    val = os.getenv(name, default)
+    return str(val).strip().lower() in ("1", "true", "yes", "y", "on")
+
 
 def _parse_index_schema_options(tokens):
     env = "dev"
@@ -159,6 +163,7 @@ from src.agents.models import AgentResult
 import types
 
 def print_welcome(agent_mode=False):
+    use_unified_react = _env_truthy("USE_UNIFIED_REACT", "false")
     print("=" * 60)
     print("MySQL Export Tool v3.0 (AI Enhanced + Smart Operations)")
     print("=" * 60)
@@ -177,7 +182,10 @@ def print_welcome(agent_mode=False):
     print("  operations        - 列出所有可用操作")
     print("  index schema      - 索引所有数据库表结构（支持 --prune/--include-empty）")
     print("  chat              - 进入智能对话模式")
-    print("  react             - 进入 ReACT 对话模式（新架构，推荐）")
+    if use_unified_react:
+        print("  react             - 进入 ReACT 对话模式（统一工具新架构）")
+    else:
+        print("  react             - 进入 ReACT 对话模式（需 USE_UNIFIED_REACT=true 开启）")
     print("  exit / quit       - 退出程序")
     print("-" * 60)
     print("也可以直接输入自然语言或 SQL 语句")
@@ -333,23 +341,29 @@ def main():
 
         # 初始化 MVP ReACT 架构
         print("正在初始化 ReACT 架构...")
+        use_unified_react = _env_truthy("USE_UNIFIED_REACT", "false")
         try:
             from src.react.orchestrator import MVPReACTOrchestrator
             from src.react.tool_service import MVPToolService
             from src.metadata.retrieval_pipeline import RetrievalPipeline
 
-            mvp_tool_service = MVPToolService(
-                db_manager=db,
-                retrieval_pipeline=RetrievalPipeline(),
-                operation_executor=operation_executor,
-                knowledge_loader=knowledge_loader
-            )
-            mvp_orchestrator = MVPReACTOrchestrator(
-                llm_client=llm,
-                tool_service=mvp_tool_service
-            )
-            logger.info("ReACT 架构初始化成功")
-            print("[OK] ReACT 架构初始化成功！")
+            if use_unified_react:
+                mvp_tool_service = MVPToolService(
+                    db_manager=db,
+                    retrieval_pipeline=RetrievalPipeline(),
+                    operation_executor=operation_executor,
+                    knowledge_loader=knowledge_loader
+                )
+                mvp_orchestrator = MVPReACTOrchestrator(
+                    llm_client=llm,
+                    tool_service=mvp_tool_service
+                )
+                logger.info("ReACT 架构初始化成功")
+                print("[OK] ReACT 架构初始化成功！")
+            else:
+                mvp_orchestrator = None
+                logger.info("ReACT 架构已关闭（USE_UNIFIED_REACT=false）")
+                print("[INFO] ReACT 架构已关闭（如需开启请设置 USE_UNIFIED_REACT=true）")
         except Exception as e:
             logger.error(f"ReACT 架构初始化失败: {e}")
             print(f"[WARN] ReACT 架构初始化失败: {e}")
@@ -515,7 +529,7 @@ def main():
             # 新增：react 命令 - 使用新架构对话
             if user_input.lower() == 'react':
                 if not mvp_orchestrator:
-                    print("[ERR] ReACT 架构未初始化")
+                    print("[ERR] ReACT 架构未初始化或未开启。请设置环境变量 USE_UNIFIED_REACT=true 后重启程序。")
                     continue
 
                 print("\n" + "=" * 60)
