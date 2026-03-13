@@ -689,13 +689,37 @@ def main():
                         query_to_execute_text = context_memory.resolve_reference(query_to_execute_text)
                         print(f"🔄 正在根据意图执行: {query_to_execute_text}")
                     else:
-                        # 对话或知识问答
-                        if isinstance(context.execution_result, types.GeneratorType):
+                        # 对话或知识问答（包括 general_chat / knowledge_qa）
+                        exec_result = context.execution_result
+
+                        # 统一处理各种返回类型，避免打印 None
+                        if isinstance(exec_result, types.GeneratorType):
                             print("\n[助手] ", end="", flush=True)
-                            for chunk in context.execution_result:
-                                if chunk.get("type") == "content":
-                                    print(chunk.get("content", ""), end="", flush=True)
-                            print()
+                            has_content = False
+                            try:
+                                for chunk in exec_result:
+                                    if chunk.get("type") == "content":
+                                        content = chunk.get("content", "")
+                                        if content:
+                                            has_content = True
+                                            print(content, end="", flush=True)
+                                print()
+                            except Exception as e:
+                                logger.error(f"消费对话流失败: {e}", exc_info=True)
+                                print("对话处理出错，请稍后再试。")
+                            if not has_content:
+                                print("抱歉，我没有理解您的问题，请换个方式提问。")
+                        else:
+                            # ExecutionAgent 对 general_chat / knowledge_qa 会把结果放在 execution_result
+                            if isinstance(exec_result, dict):
+                                reply = exec_result.get("summary") or exec_result.get("message")
+                            else:
+                                reply = str(exec_result) if exec_result is not None else ""
+                            if not reply:
+                                reply = "抱歉，我暂时无法回答这个问题。"
+                            print(f"\n[助手] {reply}")
+
+                        # 对话/知识问答场景不再进入下方 SQL/业务操作流水线
                         continue
                 else:
                     # Orchestrator不可用，跳过

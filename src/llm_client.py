@@ -1226,19 +1226,45 @@ JSON Object:
         """解析工具调用响应"""
         from src.llm_tool_models import ChatResponse, ToolCall
 
-        # 提取 message
-        if hasattr(response, 'choices') and response.choices:
-            message = response.choices[0].message
-        elif hasattr(response, 'output') and response.output:
-            message = response.output.choices[0].message
+        # 提取 message（兼容 OpenAI/DashScope，两者的属性行为不同）
+        message = None
+
+        # 优先尝试 OpenAI 兼容响应（直接带 choices）
+        try:
+            choices = getattr(response, "choices", None)
+        except KeyError:
+            choices = None
+
+        if choices:
+            message = choices[0].message
         else:
+            # 兼容 DashScope 原生响应：在 response.output.choices 下
+            output = getattr(response, "output", None)
+            if output is not None:
+                try:
+                    output_choices = getattr(output, "choices", None)
+                except KeyError:
+                    output_choices = None
+                if output_choices:
+                    message = output_choices[0].message
+
+        if message is None:
             return ChatResponse(content="响应格式异常")
 
-        # 提取 tool_calls
+        # 提取 tool_calls（同样需要兼容 DashScope 对缺失字段抛 KeyError 的行为）
         tool_calls = []
-        if hasattr(message, 'tool_calls') and message.tool_calls:
-            for tc in message.tool_calls:
-                tool_calls.append(ToolCall.from_openai(tc))
+        try:
+            raw_tool_calls = getattr(message, "tool_calls", None)
+        except KeyError:
+            raw_tool_calls = None
+
+        if raw_tool_calls:
+            for tc in raw_tool_calls:
+                # 兼容对象和 dict 两种结构
+                if isinstance(tc, dict):
+                    tool_calls.append(ToolCall.from_dict(tc))
+                else:
+                    tool_calls.append(ToolCall.from_openai(tc))
 
         return ChatResponse(
             content=message.content,
